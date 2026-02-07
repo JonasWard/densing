@@ -1,0 +1,23 @@
+{
+  "name": "densing",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/*"
+  ],
+  "type": "module",
+  "version": "0.1.0",
+  "author": "Jonas Ward",
+  "description": "Densing: packing objects as dense as possible for a defined schema.",
+  "scripts": {
+    "build": "bun build --target=node ./src/index.ts --outfile=dist/index.js && bun run build:declaration",
+    "build:declaration": "tsc --emitDeclarationOnly --isolatedDeclarations --project tsconfig.types.json",
+    "postbuild": "rimraf tsconfig.types.tsbuildinfo"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.3",
+    "@types/bun": "latest"
+  }
+}
