@@ -30,12 +30,25 @@ const bitsForEnumArrayContent = (length: number, base: number) => bitsForRange(l
 const bitsForOptions = (options: readonly string[]) => bitsForRange(options.length);
 const sizeForOptions = (options: readonly string[]) => options.length;
 
+/**
+ * Densing method - key method to dense (pack into encoded string) the data for a given schema into a string of a specific base
+ * @param denseSchema - The schema to dense the data for
+ * @param data - The data to dense
+ * @param base - The base as string of characters, where every symbol is interpreted as a specific value
+ * @returns The dense string in the given base
+ */
 export const densing = (denseSchema: DenseSchema, data: any, base: BaseType | string = 'base64url'): string => {
   const w = new BitWriter();
   denseSchema.fields.forEach((f) => densingField(w, f, data[f.name]));
   return w.getFromBase(base);
 };
 
+/**
+ * Helper method to dense a single field of the schema into the given bit writer
+ * @param w - The bit writer to write the dense data to
+ * @param field - The field used as the template to dense the value with
+ * @param value - The value to dense, should match the type of the field! This method doesn't do any validation of data!
+ */
 export function densingField(w: BitWriter, field: DenseField, value: any): void {
   switch (field.type) {
     case 'bool':
@@ -109,6 +122,13 @@ export function densingField(w: BitWriter, field: DenseField, value: any): void 
   }
 }
 
+/**
+ * Undensing method - key method to undense (unpack from encoded string) the data for a given schema from a string of a specific base
+ * @param denseSchema - The schema to undense the data for
+ * @param baseString - The dense string to undense
+ * @param base - The base as string of characters, where every symbol is interpreted as a specific value
+ * @returns The undense data
+ */
 export function undensing(denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any {
   const r = BitReader.getFromBase(baseString, base);
   const obj: any = {};
@@ -116,6 +136,12 @@ export function undensing(denseSchema: DenseSchema, baseString: string, base: Ba
   return obj;
 }
 
+/**
+ * Internal Helper method to undense a single field of the schema from the given bit reader
+ * @param r - The bit reader to read the dense data from
+ * @param denseField - The field used as the template to undense the value with
+ * @returns The undense value, should match the type of the field! This method doesn't do any validation of data!
+ */
 export function undensingField(r: BitReader, denseField: DenseField): any {
   switch (denseField.type) {
     case 'bool':
