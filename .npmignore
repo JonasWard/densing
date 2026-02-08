@@ -1,0 +1,18 @@
+# Source files
+src/
+tsconfig.json
+tsconfig.types.json
+bun.lock
+
+# Test files
+*.test.ts
+**/test/
+
+# Development files
+benchmark.ts
+.gitignore
+.cursorignore
+
+# Build artifacts
+*.tsbuildinfo
+node_modules/

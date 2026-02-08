@@ -1,25 +1,54 @@
 {
   "name": "densing",
+  "version": "0.1.0",
+  "description": "Bit and base level packing for TypeScript. Perfect for URLs, QR codes, and other storage constrained contexts.",
+  "author": "Jonas Ward",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JonasWard/densing.git"
+  },
+  "keywords": [
+    "serialization",
+    "compression",
+    "encoding",
+    "base64",
+    "bit-packing",
+    "schema",
+    "typescript",
+    "url-encoding",
+    "qr-code",
+    "data-compression"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist/*"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
-  "version": "0.1.0",
-  "author": "Jonas Ward",
-  "description": "Densing: packing objects as dense as possible for a defined schema.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "bun build --target=node ./src/index.ts --outfile=dist/index.js && bun run build:declaration",
     "build:declaration": "tsc --emitDeclarationOnly --isolatedDeclarations --project tsconfig.types.json",
     "postbuild": "rimraf tsconfig.types.tsbuildinfo",
     "benchmark": "bun run benchmark.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "bun test && bun run build"
   },
   "devDependencies": {
     "bun-types": "latest",
     "rimraf": "^6.0.1",
     "typescript": "^5.9.3",
     "@types/bun": "latest"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

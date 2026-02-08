@@ -3,33 +3,34 @@ import { BitWriter, BitReader, BaseType } from './helpers';
 import { DenseSchema, DenseField, ConstantBitWidthField } from './schema-type';
 
 // bit-width helper methods
-export const bitsForRange = (range: number) => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
-const scaleForPrecision = (precision: number) => Math.round(1 / precision);
-const bitsForInt = (min: number, max: number) => bitsForRange(Math.round(max - min) + 1);
-const bitsForFixed = (min: number, max: number, precision: number) =>
+export const bitsForRange = (range: number): number => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
+const scaleForPrecision = (precision: number): number => Math.round(1 / precision);
+const bitsForInt = (min: number, max: number): number => bitsForRange(Math.round(max - min) + 1);
+const bitsForFixed = (min: number, max: number, precision: number): number =>
   bitsForRange(Math.round((max - min) * scaleForPrecision(precision)) + 1);
 
 // to uInt helper methods
-const uIntForRange = (value: number) => Math.round(value);
-const uIntForInt = (value: number, min: number) => uIntForRange(value - min);
-const uIntForFixed = (value: number, min: number, precision: number) =>
+const uIntForRange = (value: number): number => Math.round(value);
+const uIntForInt = (value: number, min: number): number => uIntForRange(value - min);
+const uIntForFixed = (value: number, min: number, precision: number): number =>
   uIntForRange((value - min) * scaleForPrecision(precision));
 
 // from uInt helper methods
-const rangeFromUInt = (uInt: number) => uInt;
-const intFromUint = (uInt: number, min: number) => uIntForRange(uInt) + min;
-const fixedFromUint = (uInt: number, min: number, precision: number) => uIntForRange(uInt) * precision + min;
+const rangeFromUInt = (uInt: number): number => uInt;
+const intFromUint = (uInt: number, min: number): number => uIntForRange(uInt) + min;
+const fixedFromUint = (uInt: number, min: number, precision: number): number => uIntForRange(uInt) * precision + min;
 
 // array length helpers
-export const bitsForMinMaxLength = (minLength: number, maxLength: number) => bitsForRange(maxLength - minLength + 1);
-const uIntForMinMaxLength = (value: number, minLength: number) => value - minLength;
-export const lengthForUIntMinMaxLength = (uInt: number, minLength: number) => uInt + minLength;
-const bitsForEnumArrayContent = (length: number, base: number) =>
+export const bitsForMinMaxLength = (minLength: number, maxLength: number): number =>
+  bitsForRange(maxLength - minLength + 1);
+const uIntForMinMaxLength = (value: number, minLength: number): number => value - minLength;
+export const lengthForUIntMinMaxLength = (uInt: number, minLength: number): number => uInt + minLength;
+const bitsForEnumArrayContent = (length: number, base: number): number =>
   length < 1 ? 0 : Math.ceil(length * Math.log2(base));
 
 // options helper methods
-export const bitsForOptions = (options: readonly string[]) => bitsForRange(options.length);
-const sizeForOptions = (options: readonly string[]) => options.length;
+export const bitsForOptions = (options: readonly string[]): number => bitsForRange(options.length);
+const sizeForOptions = (options: readonly string[]): number => options.length;
 
 /**
  * Densing method - key method to dense (pack into encoded string) the data for a given schema into a string of a specific base
