@@ -1,14 +1,14 @@
 import { expect, test } from 'bun:test';
 import { schema, bool, int, fixed, enumeration, optional, object } from '../schema/builder';
-import { undensing, densing } from '../densing';
+import { densing, undensing } from '../densing';
 import { getDefaultData } from '../schema/default-data';
 
 test('optional field - present value', () => {
   const OptionalSchema = schema(int('required', 0, 100), optional('optional', int('value', 0, 255), undefined));
 
   const dataWithOptional = { required: 50, optional: 100 };
-  const encoded = undensing(OptionalSchema, dataWithOptional);
-  const decoded = densing(OptionalSchema, encoded);
+  const encoded = densing(OptionalSchema, dataWithOptional);
+  const decoded = undensing(OptionalSchema, encoded);
 
   console.log('Optional present - data:', dataWithOptional);
   console.log('Optional present - encoded:', encoded);
@@ -21,8 +21,8 @@ test('optional field - absent value', () => {
   const OptionalSchema = schema(int('required', 0, 100), optional('optional', int('value', 0, 255), undefined));
 
   const dataWithoutOptional = { required: 50, optional: null };
-  const encoded = undensing(OptionalSchema, dataWithoutOptional);
-  const decoded = densing(OptionalSchema, encoded);
+  const encoded = densing(OptionalSchema, dataWithoutOptional);
+  const decoded = undensing(OptionalSchema, encoded);
 
   console.log('Optional absent - data:', dataWithoutOptional);
   console.log('Optional absent - encoded:', encoded);
@@ -36,8 +36,8 @@ test('optional field - with default value', () => {
   const OptionalSchema = schema(int('required', 0, 100), optional('optional', int('value', 0, 255), 42));
 
   const dataWithoutOptional = { required: 50, optional: null };
-  const encoded = undensing(OptionalSchema, dataWithoutOptional);
-  const decoded = densing(OptionalSchema, encoded);
+  const encoded = densing(OptionalSchema, dataWithoutOptional);
+  const decoded = undensing(OptionalSchema, encoded);
 
   console.log('Optional with default - data:', dataWithoutOptional);
   console.log('Optional with default - encoded:', encoded);
@@ -55,8 +55,8 @@ test('object field - simple object', () => {
     point: { x: 10, y: -20 }
   };
 
-  const encoded = undensing(ObjectSchema, data);
-  const decoded = densing(ObjectSchema, encoded);
+  const encoded = densing(ObjectSchema, data);
+  const decoded = undensing(ObjectSchema, encoded);
 
   console.log('Object - data:', data);
   console.log('Object - encoded:', encoded);
@@ -80,8 +80,8 @@ test('object field - nested objects', () => {
     }
   };
 
-  const encoded = undensing(NestedObjectSchema, data);
-  const decoded = densing(NestedObjectSchema, encoded);
+  const encoded = densing(NestedObjectSchema, data);
+  const decoded = undensing(NestedObjectSchema, encoded);
 
   console.log('Nested object - data:', data);
   console.log('Nested object - encoded:', encoded);
@@ -106,11 +106,11 @@ test('optional object field', () => {
     metadata: null
   };
 
-  const encoded1 = undensing(OptionalObjectSchema, dataWithMetadata);
-  const decoded1 = densing(OptionalObjectSchema, encoded1);
+  const encoded1 = densing(OptionalObjectSchema, dataWithMetadata);
+  const decoded1 = undensing(OptionalObjectSchema, encoded1);
 
-  const encoded2 = undensing(OptionalObjectSchema, dataWithoutMetadata);
-  const decoded2 = densing(OptionalObjectSchema, encoded2);
+  const encoded2 = densing(OptionalObjectSchema, dataWithoutMetadata);
+  const decoded2 = undensing(OptionalObjectSchema, encoded2);
 
   console.log('Optional object present - data:', dataWithMetadata);
   console.log('Optional object present - encoded:', encoded1);
@@ -144,13 +144,13 @@ test('getDefaultData with optional and object fields', () => {
   expect(defaultData.settings).toHaveProperty('count');
 
   // Should be able to encode/decode default data
-  const encoded = undensing(ComplexSchema, defaultData);
-  const decoded = densing(ComplexSchema, encoded);
+  const encoded = densing(ComplexSchema, defaultData);
+  const decoded = undensing(ComplexSchema, encoded);
   expect(decoded).toEqual(defaultData);
 });
 
 test('complex combination - array of objects with optional fields', () => {
-  const { array } = require('./schemaBuilder');
+  const { array } = require('../schema/builder');
 
   const ComplexSchema = schema(
     array('items', 0, 5, object('item', int('id', 0, 100), optional('name', int('nameId', 0, 1000), undefined)))
@@ -164,8 +164,8 @@ test('complex combination - array of objects with optional fields', () => {
     ]
   };
 
-  const encoded = undensing(ComplexSchema, data);
-  const decoded = densing(ComplexSchema, encoded);
+  const encoded = densing(ComplexSchema, data);
+  const decoded = undensing(ComplexSchema, encoded);
 
   console.log('Array of objects with optional - data:', data);
   console.log('Array of objects with optional - encoded:', encoded);

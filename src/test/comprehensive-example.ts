@@ -1,6 +1,6 @@
-import { schema, bool, int, fixed, enumeration, array, optional, object, union } from './schema/builder';
-import { undensing, densing } from './densing';
-import { getDefaultData } from './schema/default-data';
+import { schema, bool, int, fixed, enumeration, array, optional, object, union } from '../schema';
+import { densing, undensing } from '../densing';
+import { getDefaultData } from '../schema/default-data';
 
 // Example: IoT Device Configuration Schema
 const DeviceConfigSchema = schema(
@@ -55,8 +55,8 @@ const tempSensorData = {
   ]
 };
 
-const encoded1 = undensing(DeviceConfigSchema, tempSensorData);
-const decoded1 = densing(DeviceConfigSchema, encoded1);
+const encoded1 = densing(DeviceConfigSchema, tempSensorData);
+const decoded1 = undensing(DeviceConfigSchema, encoded1);
 
 console.log('Original:', JSON.stringify(tempSensorData, null, 2));
 console.log('Encoded:', encoded1, `(${encoded1.length} chars)`);
@@ -83,8 +83,8 @@ const motionSensorData = {
   alerts: [] // No alerts
 };
 
-const encoded2 = undensing(DeviceConfigSchema, motionSensorData);
-const decoded2 = densing(DeviceConfigSchema, encoded2);
+const encoded2 = densing(DeviceConfigSchema, motionSensorData);
+const decoded2 = undensing(DeviceConfigSchema, encoded2);
 
 console.log('Original:', JSON.stringify(motionSensorData, null, 2));
 console.log('Encoded:', encoded2, `(${encoded2.length} chars)`);
@@ -97,8 +97,8 @@ const defaultConfig = getDefaultData(DeviceConfigSchema);
 
 console.log('Default:', JSON.stringify(defaultConfig, null, 2));
 
-const encoded3 = undensing(DeviceConfigSchema, defaultConfig);
-const decoded3 = densing(DeviceConfigSchema, encoded3);
+const encoded3 = densing(DeviceConfigSchema, defaultConfig);
+const decoded3 = undensing(DeviceConfigSchema, encoded3);
 
 console.log('Encoded:', encoded3, `(${encoded3.length} chars)`);
 console.log('Decoded:', JSON.stringify(decoded3, null, 2));

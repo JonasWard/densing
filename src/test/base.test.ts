@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { undensing, densing } from '../densing';
+import { densing, undensing } from '../densing';
 import { schema, bool, int, fixed, enumeration, union, array, enumArray } from '../schema/builder';
 import { getBase64FromBigInt, getBigIntFromBase64 } from '../helpers';
 
@@ -22,17 +22,17 @@ test('testing base64 and back conversion for simple types', () => {
   const FixedData = { value: 100.1 };
   const EnumData = { value: 'R' };
 
-  const BoolB64 = undensing(BoolSchema, BoolData);
-  const IntB640 = undensing(IntSchema, IntData0);
-  const IntB64 = undensing(IntSchema, IntData);
-  const FixedB64 = undensing(FixedSchema, FixedData);
-  const EnumB64 = undensing(EnumSchema, EnumData);
+  const BoolB64 = densing(BoolSchema, BoolData);
+  const IntB640 = densing(IntSchema, IntData0);
+  const IntB64 = densing(IntSchema, IntData);
+  const FixedB64 = densing(FixedSchema, FixedData);
+  const EnumB64 = densing(EnumSchema, EnumData);
 
-  const BoolDecoded = densing(BoolSchema, BoolB64);
-  const IntDecoded0 = densing(IntSchema, IntB640);
-  const IntDecoded = densing(IntSchema, IntB64);
-  const FixedDecoded = densing(FixedSchema, FixedB64);
-  const EnumDecoded = densing(EnumSchema, EnumB64);
+  const BoolDecoded = undensing(BoolSchema, BoolB64);
+  const IntDecoded0 = undensing(IntSchema, IntB640);
+  const IntDecoded = undensing(IntSchema, IntB64);
+  const FixedDecoded = undensing(FixedSchema, FixedB64);
+  const EnumDecoded = undensing(EnumSchema, EnumB64);
 
   console.log({ BoolB64, IntB640, IntB64, FixedB64, EnumB64 });
   console.log({ BoolDecoded, IntDecoded0, IntDecoded, FixedDecoded, EnumDecoded });
@@ -58,13 +58,13 @@ test('testing base64 and back conversion for complex types', () => {
   const ArrayData = { value: [1, 2, 3] };
   const EnumArrayData = { value: ['R', 'G', 'B'] };
 
-  const UnionB64 = undensing(UnionSchema, UnionData);
-  const VarArrayB64 = undensing(ArraySchema, ArrayData);
-  const EnumArrayB64 = undensing(EnumArraySchema, EnumArrayData);
+  const UnionB64 = densing(UnionSchema, UnionData);
+  const VarArrayB64 = densing(ArraySchema, ArrayData);
+  const EnumArrayB64 = densing(EnumArraySchema, EnumArrayData);
 
-  const ArrayDecoded = densing(ArraySchema, VarArrayB64);
-  const EnumArrayDecoded = densing(EnumArraySchema, EnumArrayB64);
-  const UnionDecoded = densing(UnionSchema, UnionB64);
+  const ArrayDecoded = undensing(ArraySchema, VarArrayB64);
+  const EnumArrayDecoded = undensing(EnumArraySchema, EnumArrayB64);
+  const UnionDecoded = undensing(UnionSchema, UnionB64);
 
   expect(ArrayDecoded).toEqual(ArrayData);
   expect(EnumArrayDecoded).toEqual(EnumArrayData);
@@ -85,13 +85,13 @@ test('complex schema testing', () => {
   const ArrayData = { value: [1, 2, 3] };
   const EnumArrayData = { value: ['R', 'G', 'B'] };
 
-  const UnionB64 = undensing(UnionSchema, UnionData);
-  const VarArrayB64 = undensing(ArraySchema, ArrayData);
-  const EnumArrayB64 = undensing(EnumArraySchema, EnumArrayData);
+  const UnionB64 = densing(UnionSchema, UnionData);
+  const VarArrayB64 = densing(ArraySchema, ArrayData);
+  const EnumArrayB64 = densing(EnumArraySchema, EnumArrayData);
 
-  const ArrayDecoded = densing(ArraySchema, VarArrayB64);
-  const EnumArrayDecoded = densing(EnumArraySchema, EnumArrayB64);
-  const UnionDecoded = densing(UnionSchema, UnionB64);
+  const ArrayDecoded = undensing(ArraySchema, VarArrayB64);
+  const EnumArrayDecoded = undensing(EnumArraySchema, EnumArrayB64);
+  const UnionDecoded = undensing(UnionSchema, UnionB64);
 
   console.log({ UnionB64, VarArrayB64, EnumArrayB64 });
   console.log({ ArrayDecoded, EnumArrayDecoded, UnionDecoded });

@@ -1,5 +1,5 @@
 import { schema, int, createRecursiveUnion } from '../schema';
-import { undensing, densing } from '../densing';
+import { densing, undensing } from '../densing';
 
 /**
  * Example 1: Mathematical Expression
@@ -42,8 +42,8 @@ const expressionData = {
   }
 };
 
-const encoded1 = undensing(ExpressionSchema, expressionData);
-const decoded1 = densing(ExpressionSchema, encoded1);
+const encoded1 = densing(ExpressionSchema, expressionData);
+const decoded1 = undensing(ExpressionSchema, encoded1);
 
 console.log('Expression:', JSON.stringify(expressionData, null, 2));
 console.log('Encoded:', encoded1, `(${encoded1.length} chars)`);
@@ -90,8 +90,8 @@ const treeData = {
   }
 };
 
-const encoded2 = undensing(BinaryTreeSchema, treeData);
-const decoded2 = densing(BinaryTreeSchema, encoded2);
+const encoded2 = densing(BinaryTreeSchema, treeData);
+const decoded2 = undensing(BinaryTreeSchema, encoded2);
 
 console.log('Tree:', JSON.stringify(treeData, null, 2));
 console.log('Encoded:', encoded2, `(${encoded2.length} chars)`);

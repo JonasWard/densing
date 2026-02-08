@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { createRecursiveUnion, ExpressionSchema, BinaryTreeSchema } from '../schema/recursive-builder-helper';
 import { schema, int, fixed, enumeration } from '../schema/builder';
-import { undensing, densing } from '../densing';
+import { densing, undensing } from '../densing';
 import { validate } from '../schema/validation';
 
 describe('createRecursiveUnion', () => {
@@ -44,8 +44,8 @@ describe('ExpressionSchema', () => {
       expr: { type: 'number', value: 42 }
     };
 
-    const encoded = undensing(ExpressionSchema, data);
-    const decoded = densing(ExpressionSchema, encoded);
+    const encoded = densing(ExpressionSchema, data);
+    const decoded = undensing(ExpressionSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -59,8 +59,8 @@ describe('ExpressionSchema', () => {
       }
     };
 
-    const encoded = undensing(ExpressionSchema, data);
-    const decoded = densing(ExpressionSchema, encoded);
+    const encoded = densing(ExpressionSchema, data);
+    const decoded = undensing(ExpressionSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -78,8 +78,8 @@ describe('ExpressionSchema', () => {
       }
     };
 
-    const encoded = undensing(ExpressionSchema, data);
-    const decoded = densing(ExpressionSchema, encoded);
+    const encoded = densing(ExpressionSchema, data);
+    const decoded = undensing(ExpressionSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -102,8 +102,8 @@ describe('ExpressionSchema', () => {
       }
     };
 
-    const encoded = undensing(ExpressionSchema, data);
-    const decoded = densing(ExpressionSchema, encoded);
+    const encoded = densing(ExpressionSchema, data);
+    const decoded = undensing(ExpressionSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -131,7 +131,7 @@ describe('ExpressionSchema', () => {
       }
     };
 
-    const encoded = undensing(ExpressionSchema, data);
+    const encoded = densing(ExpressionSchema, data);
     const jsonSize = JSON.stringify(data).length;
 
     // Base64 should be much smaller than JSON
@@ -145,8 +145,8 @@ describe('BinaryTreeSchema', () => {
       node: { type: 'leaf', value: 42 }
     };
 
-    const encoded = undensing(BinaryTreeSchema, data);
-    const decoded = densing(BinaryTreeSchema, encoded);
+    const encoded = densing(BinaryTreeSchema, data);
+    const decoded = undensing(BinaryTreeSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -161,8 +161,8 @@ describe('BinaryTreeSchema', () => {
       }
     };
 
-    const encoded = undensing(BinaryTreeSchema, data);
-    const decoded = densing(BinaryTreeSchema, encoded);
+    const encoded = densing(BinaryTreeSchema, data);
+    const decoded = undensing(BinaryTreeSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -187,8 +187,8 @@ describe('BinaryTreeSchema', () => {
       }
     };
 
-    const encoded = undensing(BinaryTreeSchema, data);
-    const decoded = densing(BinaryTreeSchema, encoded);
+    const encoded = densing(BinaryTreeSchema, data);
+    const decoded = undensing(BinaryTreeSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -227,8 +227,8 @@ describe('Method with recursive inputs', () => {
       method: { type: 'int_value', value: 42 }
     };
 
-    const encoded = undensing(MethodSchema, data);
-    const decoded = densing(MethodSchema, encoded);
+    const encoded = densing(MethodSchema, data);
+    const decoded = undensing(MethodSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -243,8 +243,8 @@ describe('Method with recursive inputs', () => {
       }
     };
 
-    const encoded = undensing(MethodSchema, data);
-    const decoded = densing(MethodSchema, encoded);
+    const encoded = densing(MethodSchema, data);
+    const decoded = undensing(MethodSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -265,8 +265,8 @@ describe('Method with recursive inputs', () => {
       }
     };
 
-    const encoded = undensing(MethodSchema, data);
-    const decoded = densing(MethodSchema, encoded);
+    const encoded = densing(MethodSchema, data);
+    const decoded = undensing(MethodSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -297,8 +297,8 @@ describe('Method with recursive inputs', () => {
       }
     };
 
-    const encoded = undensing(MethodSchema, data);
-    const decoded = densing(MethodSchema, encoded);
+    const encoded = densing(MethodSchema, data);
+    const decoded = undensing(MethodSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -343,8 +343,8 @@ describe('Mixed type operations', () => {
       }
     };
 
-    const encoded = undensing(MixedSchema, data);
-    const decoded = densing(MixedSchema, encoded);
+    const encoded = densing(MixedSchema, data);
+    const decoded = undensing(MixedSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -364,8 +364,8 @@ describe('Mixed type operations', () => {
       }
     };
 
-    const encoded = undensing(MixedSchema, data);
-    const decoded = densing(MixedSchema, encoded);
+    const encoded = densing(MixedSchema, data);
+    const decoded = undensing(MixedSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -390,7 +390,7 @@ describe('Space efficiency', () => {
     };
 
     const jsonSize = JSON.stringify(data).length;
-    const encoded = undensing(ExpressionSchema, data);
+    const encoded = densing(ExpressionSchema, data);
 
     // Should achieve at least 90% compression
     expect(encoded.length).toBeLessThan(jsonSize * 0.1);
@@ -417,7 +417,7 @@ describe('Space efficiency', () => {
     };
 
     const jsonSize = JSON.stringify(data).length;
-    const encoded = undensing(BinaryTreeSchema, data);
+    const encoded = densing(BinaryTreeSchema, data);
 
     // Should achieve at least 90% compression
     expect(encoded.length).toBeLessThan(jsonSize * 0.1);
@@ -442,8 +442,8 @@ describe('Edge cases', () => {
       node: { type: 'value', val: 5 }
     };
 
-    const encoded = undensing(MinimalSchema, data);
-    const decoded = densing(MinimalSchema, encoded);
+    const encoded = densing(MinimalSchema, data);
+    const decoded = undensing(MinimalSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -477,8 +477,8 @@ describe('Edge cases', () => {
       }
     };
 
-    const encoded = undensing(DeepSchema, data);
-    const decoded = densing(DeepSchema, encoded);
+    const encoded = densing(DeepSchema, data);
+    const decoded = undensing(DeepSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -503,8 +503,8 @@ describe('Edge cases', () => {
       }
     };
 
-    const encoded = undensing(SingleSchema, data);
-    const decoded = densing(SingleSchema, encoded);
+    const encoded = densing(SingleSchema, data);
+    const decoded = undensing(SingleSchema, encoded);
 
     expect(decoded).toEqual(data);
   });
@@ -532,8 +532,8 @@ describe('Edge cases', () => {
       }
     };
 
-    const encoded = undensing(TernarySchema, data);
-    const decoded = densing(TernarySchema, encoded);
+    const encoded = densing(TernarySchema, data);
+    const decoded = undensing(TernarySchema, encoded);
 
     expect(decoded).toEqual(data);
   });

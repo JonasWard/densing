@@ -30,13 +30,13 @@ const bitsForEnumArrayContent = (length: number, base: number) => bitsForRange(l
 const bitsForOptions = (options: readonly string[]) => bitsForRange(options.length);
 const sizeForOptions = (options: readonly string[]) => options.length;
 
-export const undensing = (denseSchema: DenseSchema, data: any, base: BaseType | string = 'base64url'): string => {
+export const densing = (denseSchema: DenseSchema, data: any, base: BaseType | string = 'base64url'): string => {
   const w = new BitWriter();
-  denseSchema.fields.forEach((f) => undensingField(w, f, data[f.name]));
+  denseSchema.fields.forEach((f) => densingField(w, f, data[f.name]));
   return w.getFromBase(base);
 };
 
-export function undensingField(w: BitWriter, field: DenseField, value: any): void {
+export function densingField(w: BitWriter, field: DenseField, value: any): void {
   switch (field.type) {
     case 'bool':
       w.writeUInt(value ? 1 : 0, 1);
@@ -62,7 +62,7 @@ export function undensingField(w: BitWriter, field: DenseField, value: any): voi
       if (!Array.isArray(value)) throw new Error('value of `array` is not an array');
       const arrayLengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
       if (arrayLengthBits !== 0) w.writeUInt((value as any[]).length, arrayLengthBits);
-      (value as any[]).forEach((v) => undensingField(w, field.items, v));
+      (value as any[]).forEach((v) => densingField(w, field.items, v));
       break;
     }
 
@@ -71,7 +71,7 @@ export function undensingField(w: BitWriter, field: DenseField, value: any): voi
       const discIdx = field.discriminator.options.indexOf(discValue);
       if (discIdx === -1) throw new Error(`Invalid union discriminator value: ${discValue}`);
       w.writeUInt(discIdx, bitsForOptions(field.discriminator.options));
-      field.variants[discValue].forEach((f) => undensingField(w, f, value[f.name]));
+      field.variants[discValue].forEach((f) => densingField(w, f, value[f.name]));
       break;
     }
 
@@ -96,27 +96,27 @@ export function undensingField(w: BitWriter, field: DenseField, value: any): voi
       const isPresent = value !== undefined && value !== null;
       w.writeUInt(isPresent ? 1 : 0, 1);
       if (isPresent) {
-        undensingField(w, field.field, value);
+        densingField(w, field.field, value);
       }
       break;
     }
 
     case 'object': {
       if (typeof value !== 'object' || value === null) throw new Error('value of `object` is not an object');
-      field.fields.forEach((f) => undensingField(w, f, value[f.name]));
+      field.fields.forEach((f) => densingField(w, f, value[f.name]));
       break;
     }
   }
 }
 
-export function densing(denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any {
+export function undensing(denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any {
   const r = BitReader.getFromBase(baseString, base);
   const obj: any = {};
-  denseSchema.fields.forEach((f) => (obj[f.name] = densingField(r, f)));
+  denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f)));
   return obj;
 }
 
-export function densingField(r: BitReader, denseField: DenseField): any {
+export function undensingField(r: BitReader, denseField: DenseField): any {
   switch (denseField.type) {
     case 'bool':
       return Boolean(r.readUInt(1));
@@ -140,14 +140,14 @@ export function densingField(r: BitReader, denseField: DenseField): any {
         r.readUInt(bitsForMinMaxLength(denseField.minLength, denseField.maxLength)),
         denseField.minLength
       );
-      return Array.from({ length }, () => densingField(r, denseField.items));
+      return Array.from({ length }, () => undensingField(r, denseField.items));
     }
 
     case 'union': {
       const idx = r.readUInt(bitsForOptions(denseField.discriminator.options));
       const key = denseField.discriminator.options[idx];
       const obj: any = { [denseField.discriminator.name]: key };
-      denseField.variants[key].forEach((f) => (obj[f.name] = densingField(r, f)));
+      denseField.variants[key].forEach((f) => (obj[f.name] = undensingField(r, f)));
       return obj;
     }
 
@@ -171,12 +171,12 @@ export function densingField(r: BitReader, denseField: DenseField): any {
 
     case 'optional':
       return Boolean(r.readUInt(1))
-        ? densingField(r, denseField.field)
+        ? undensingField(r, denseField.field)
         : denseField.defaultValue !== undefined
         ? denseField.defaultValue
         : null;
 
     case 'object':
-      return Object.fromEntries(denseField.fields.map((f) => [f.name, densingField(r, f)]));
+      return Object.fromEntries(denseField.fields.map((f) => [f.name, undensingField(r, f)]));
   }
 }
