@@ -25,16 +25,26 @@ const getMaxBitWidthForBase = (baseString: string, baseChars: string): number =>
 
 const getBaseStringFromBigInt = (bigInt: bigint, baseChars: string, bitWidth?: number): string => {
   const minChars = bitWidth ? getMinRequiredCharsForBase(bitWidth, baseChars) : 0;
+  const maxBits = Math.floor(minChars * Math.log2(baseChars.length));
+
+  // In some bases, the minimal required character count (minChars) may encode more bits than the actual bitWidth of the input.
+  // To ensure the encoded string uses all minChars and does not lose significant bits:
+  // If the base encoding needs more bits (maxBits) than we actually have (bitWidth),
+  // shift the input left so it fills the available character space.
+  // This aligns the value to occupy the correct bit positions in the resulting string.
+  // ToDo: validate whether this is correct
+  let adjustedBigInt = bigInt;
+  if (bitWidth && maxBits > bitWidth) adjustedBigInt = bigInt << BigInt(maxBits - bitWidth);
 
   const base = BigInt(baseChars.length);
   const acc = [];
 
-  while (bigInt > 0) acc.push(Number(bigInt % base)), (bigInt = bigInt / base);
+  while (adjustedBigInt > 0) acc.push(Number(adjustedBigInt % base)), (adjustedBigInt = adjustedBigInt / base);
   while (minChars > 0 && acc.length < minChars) acc.push(0);
 
   return acc
     .reverse()
-    .map((n) => base64url.charAt(n))
+    .map((n) => baseChars.charAt(n))
     .join('');
 };
 
@@ -91,6 +101,9 @@ export class BitWriter {
     getBaseStringFromBigInt(this.buffer, getCharsForBase(base), this.bitsWritten);
 }
 
+/**
+ * Helper class for reading the uInt numeric value of a field in the schema from the bigint representing the densed data
+ */
 export class BitReader {
   private buffer: bigint;
   private bitsLeft: number;
