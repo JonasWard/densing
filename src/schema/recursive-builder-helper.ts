@@ -1,6 +1,5 @@
 import { DenseField } from '../schema-type';
-import { int, enumeration, union, schema } from './builder';
-import { densing, undensing } from '../densing';
+import { enumeration, union } from './builder';
 
 /**
  * Helper function to create a recursive union field with a specified max depth.
