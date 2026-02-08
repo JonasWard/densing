@@ -1,12 +1,12 @@
 import { BitReader, BitWriter } from '../helpers';
 import { DenseField, DenseSchema } from '../schema-type';
-import { densingField as originalEncodeField, undensingField as originalDecodeField } from '../densing';
-
-// Import only the helper functions we need for recursive types
-const bitsForRange = (range: number) => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
-const bitsForMinMaxLength = (minLength: number, maxLength: number) => bitsForRange(maxLength - minLength);
-const lengthForUIntMinMaxLength = (uInt: number, minLength: number) => uInt + minLength;
-const bitsForOptions = (options: readonly string[]) => bitsForRange(options.length);
+import {
+  densingField as originalEncodeField,
+  undensingField as originalDecodeField,
+  bitsForMinMaxLength,
+  bitsForOptions,
+  lengthForUIntMinMaxLength
+} from '../densing';
 
 /**
  * Internal encode function with logging support

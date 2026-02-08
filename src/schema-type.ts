@@ -80,3 +80,5 @@ export interface ObjectField {
 export interface DenseSchema {
   fields: DenseField[];
 }
+
+export type ConstantBitWidthField = BoolField | IntField | EnumField | FixedPointField;

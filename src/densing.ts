@@ -1,9 +1,9 @@
 // codec.ts
 import { BitWriter, BitReader, BaseType } from './helpers';
-import { DenseSchema, DenseField } from './schema-type';
+import { DenseSchema, DenseField, ConstantBitWidthField } from './schema-type';
 
 // bit-width helper methods
-const bitsForRange = (range: number) => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
+export const bitsForRange = (range: number) => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
 const scaleForPrecision = (precision: number) => Math.round(1 / precision);
 const bitsForInt = (min: number, max: number) => bitsForRange(Math.round(max - min) + 1);
 const bitsForFixed = (min: number, max: number, precision: number) =>
@@ -21,13 +21,14 @@ const intFromUint = (uInt: number, min: number) => uIntForRange(uInt) + min;
 const fixedFromUint = (uInt: number, min: number, precision: number) => uIntForRange(uInt) * precision + min;
 
 // array length helpers
-const bitsForMinMaxLength = (minLength: number, maxLength: number) => bitsForRange(maxLength - minLength);
+export const bitsForMinMaxLength = (minLength: number, maxLength: number) => bitsForRange(maxLength - minLength + 1);
 const uIntForMinMaxLength = (value: number, minLength: number) => value - minLength;
-const lengthForUIntMinMaxLength = (uInt: number, minLength: number) => uInt + minLength;
-const bitsForEnumArrayContent = (length: number, base: number) => bitsForRange(length * base);
+export const lengthForUIntMinMaxLength = (uInt: number, minLength: number) => uInt + minLength;
+const bitsForEnumArrayContent = (length: number, base: number) =>
+  length < 1 ? 0 : Math.ceil(length * Math.log2(base));
 
 // options helper methods
-const bitsForOptions = (options: readonly string[]) => bitsForRange(options.length);
+export const bitsForOptions = (options: readonly string[]) => bitsForRange(options.length);
 const sizeForOptions = (options: readonly string[]) => options.length;
 
 /**
@@ -43,6 +44,32 @@ export const densing = (denseSchema: DenseSchema, data: any, base: BaseType | st
   return w.getFromBase(base);
 };
 
+export const getUIntForConstantBitWidthField = (field: ConstantBitWidthField, value: any): number => {
+  switch (field.type) {
+    case 'bool':
+      return value ? 1 : 0;
+    case 'int':
+      return uIntForInt(value, field.min);
+    case 'enum':
+      return field.options.indexOf(value);
+    case 'fixed':
+      return uIntForFixed(value, field.min, field.precision);
+  }
+};
+
+export const getBitWidthForContantBitWidthFields = (field: ConstantBitWidthField): number => {
+  switch (field.type) {
+    case 'bool':
+      return 1;
+    case 'int':
+      return bitsForInt(field.min, field.max);
+    case 'enum':
+      return bitsForOptions(field.options);
+    case 'fixed':
+      return bitsForFixed(field.min, field.max, field.precision);
+  }
+};
+
 /**
  * Helper method to dense a single field of the schema into the given bit writer
  * @param w - The bit writer to write the dense data to
@@ -52,29 +79,16 @@ export const densing = (denseSchema: DenseSchema, data: any, base: BaseType | st
 export function densingField(w: BitWriter, field: DenseField, value: any): void {
   switch (field.type) {
     case 'bool':
-      w.writeUInt(value ? 1 : 0, 1);
+    case 'int':
+    case 'enum':
+    case 'fixed':
+      w.writeUInt(getUIntForConstantBitWidthField(field, value), getBitWidthForContantBitWidthFields(field));
       break;
-
-    case 'int': {
-      w.writeUInt(uIntForInt(value, field.min), bitsForInt(field.min, field.max));
-      break;
-    }
-
-    case 'enum': {
-      const idx = field.options.indexOf(value);
-      w.writeUInt(idx, bitsForOptions(field.options));
-      break;
-    }
-
-    case 'fixed': {
-      w.writeUInt(uIntForFixed(value, field.min, field.precision), bitsForFixed(field.min, field.max, field.precision));
-      break;
-    }
-
     case 'array': {
       if (!Array.isArray(value)) throw new Error('value of `array` is not an array');
       const arrayLengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
-      if (arrayLengthBits !== 0) w.writeUInt((value as any[]).length, arrayLengthBits);
+      if (arrayLengthBits !== 0)
+        w.writeUInt(uIntForMinMaxLength((value as any[]).length, field.minLength), arrayLengthBits);
       (value as any[]).forEach((v) => densingField(w, field.items, v));
       break;
     }
@@ -91,7 +105,8 @@ export function densingField(w: BitWriter, field: DenseField, value: any): void 
     case 'enum_array': {
       if (!Array.isArray(value)) throw new Error('value of `enum_array` is not an array');
       const arrayLengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
-      if (arrayLengthBits !== 0) w.writeUInt((value as string[]).length, arrayLengthBits);
+      if (arrayLengthBits !== 0)
+        w.writeUInt(uIntForMinMaxLength((value as string[]).length, field.minLength), arrayLengthBits);
 
       const base = BigInt(sizeForOptions(field.enum.options));
 
@@ -136,6 +151,19 @@ export function undensing(denseSchema: DenseSchema, baseString: string, base: Ba
   return obj;
 }
 
+export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthField, unsignedInt: number): any => {
+  switch (field.type) {
+    case 'bool':
+      return Boolean(unsignedInt);
+    case 'int':
+      return intFromUint(unsignedInt, field.min);
+    case 'enum':
+      return field.options[unsignedInt];
+    case 'fixed':
+      return fixedFromUint(unsignedInt, field.min, field.precision);
+  }
+};
+
 /**
  * Internal Helper method to undense a single field of the schema from the given bit reader
  * @param r - The bit reader to read the dense data from
@@ -145,20 +173,12 @@ export function undensing(denseSchema: DenseSchema, baseString: string, base: Ba
 export function undensingField(r: BitReader, denseField: DenseField): any {
   switch (denseField.type) {
     case 'bool':
-      return Boolean(r.readUInt(1));
-
     case 'int':
-      return intFromUint(r.readUInt(bitsForInt(denseField.min, denseField.max)), denseField.min);
-
     case 'enum':
-      const idx = r.readUInt(bitsForOptions(denseField.options));
-      return denseField.options[idx];
-
     case 'fixed':
-      return fixedFromUint(
-        r.readUInt(bitsForFixed(denseField.min, denseField.max, denseField.precision)),
-        denseField.min,
-        denseField.precision
+      return undensingDataForConstantBitWidthField(
+        denseField,
+        r.readUInt(getBitWidthForContantBitWidthFields(denseField))
       );
 
     case 'array': {
