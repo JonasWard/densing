@@ -5,9 +5,9 @@ import { DenseSchema, DenseField } from './schema-type';
 // bit-width helper methods
 const bitsForRange = (range: number) => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
 const scaleForPrecision = (precision: number) => Math.round(1 / precision);
-const bitsForInt = (min: number, max: number) => bitsForRange(Math.round(max - min));
+const bitsForInt = (min: number, max: number) => bitsForRange(Math.round(max - min) + 1);
 const bitsForFixed = (min: number, max: number, precision: number) =>
-  bitsForRange(Math.round((max - min) * scaleForPrecision(precision)));
+  bitsForRange(Math.round((max - min) * scaleForPrecision(precision)) + 1);
 
 // to uInt helper methods
 const uIntForRange = (value: number) => Math.round(value);
