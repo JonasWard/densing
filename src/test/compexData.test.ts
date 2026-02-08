@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { schema, int, enumeration, optional, object, bool, array, union, fixed } from '../schema/builder';
-import { encodeDebugWrapper, decodeDebugWrapper } from './testHelper';
+import { encodeDebugWrapper, decodeDebugWrapper } from './test-helper';
 
 // Example: IoT Device Configuration Schema
 const DeviceConfigSchema = schema(

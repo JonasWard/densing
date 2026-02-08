@@ -1,6 +1,6 @@
 import { BitReader, BitWriter } from '../helpers';
 import { DenseField, DenseSchema } from '../schema-type';
-import { undensingField as originalEncodeField, densingField as originalDecodeField } from '../densing';
+import { densingField as originalEncodeField, undensingField as originalDecodeField } from '../densing';
 
 // Import only the helper functions we need for recursive types
 const bitsForRange = (range: number) => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));

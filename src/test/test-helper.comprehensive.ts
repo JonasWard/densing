@@ -1,5 +1,5 @@
-import { schema, int, bool, optional, object, array, union, enumeration, fixed } from '../schema/builder';
-import { encodeDebugWrapper, decodeDebugWrapper } from './testHelper';
+import { schema, int, bool, optional, object, union, enumeration, fixed } from '../schema/builder';
+import { encodeDebugWrapper, decodeDebugWrapper } from './test-helper';
 
 console.log('=== Comprehensive Nested Logging Test ===\n');
 

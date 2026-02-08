@@ -87,8 +87,8 @@ test('getDefaultData can be encoded and decoded', () => {
   console.log('Complex default data:', defaultData);
 
   // Should be able to encode and decode the default data
-  const encoded = undensing(ComplexSchema, defaultData);
-  const decoded = densing(ComplexSchema, encoded);
+  const encoded = densing(ComplexSchema, defaultData);
+  const decoded = undensing(ComplexSchema, encoded);
 
   console.log('Encoded:', encoded);
   console.log('Decoded:', decoded);

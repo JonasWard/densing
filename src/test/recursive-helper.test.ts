@@ -1,8 +1,41 @@
 import { describe, test, expect } from 'bun:test';
-import { createRecursiveUnion, ExpressionSchema, BinaryTreeSchema } from '../schema/recursive-builder-helper';
+import { createRecursiveUnion } from '../schema/recursive-builder-helper';
 import { schema, int, fixed, enumeration } from '../schema/builder';
 import { densing, undensing } from '../densing';
 import { validate } from '../schema/validation';
+
+/**
+ * Example: Mathematical Expression Schema
+ * Define the structure ONCE, reuse it recursively
+ */
+export const ExpressionSchema = schema(
+  createRecursiveUnion(
+    'expr',
+    ['number', 'add', 'multiply', 'divide'],
+    (recurse) => ({
+      number: [int('value', 0, 1000)],
+      add: [recurse('left'), recurse('right')],
+      multiply: [recurse('left'), recurse('right')],
+      divide: [recurse('left'), recurse('right')]
+    }),
+    3 // Max depth of 3 levels
+  )
+);
+
+/**
+ * Example: Binary Tree Schema
+ */
+export const BinaryTreeSchema = schema(
+  createRecursiveUnion(
+    'node',
+    ['leaf', 'branch'],
+    (recurse) => ({
+      leaf: [int('value', 0, 255)],
+      branch: [int('value', 0, 255), recurse('left'), recurse('right')]
+    }),
+    3
+  )
+);
 
 describe('createRecursiveUnion', () => {
   test('creates a valid union field', () => {
