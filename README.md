@@ -1,5 +1,3 @@
-# Densing
-
 **Densing** is a TypeScript library for ultra-compact data serialization. It uses bit-level packing to encode structured data into the smallest possible representation, then converts it to character based encodings like urlSafeBase64, or QRBase45-safe strings.
 
 Perfect for embedding complex data in URLs, QR codes, or any scenario where every character counts!
@@ -10,15 +8,15 @@ Perfect for embedding complex data in URLs, QR codes, or any scenario where ever
 // Traditional JSON: 87 bytes
 const json = '{"deviceId":42,"enabled":true,"temperature":23.5,"mode":"performance"}';
 
-// with:
+// Densing: base64 -> 4 characters (4 bytes) - **94% smaller!**
+const densed = 'Cqnu';
+
+// note with:
 // deviceId: value form 0 to 1000 -> 1001 states -> 10 bits
 // enabled: boolean value -> 2 states -> 1 bit
 // temperature: value from -40.0 to 125.0 (one decimal precision) -> 1650 states ->  11 bits
 // mode: 'eco' | 'normal' | 'performance' -> 3 states -> 2 bits
 // --> 24 bits (3 bytes)
-
-// Densing: base64 -> 4 characters (4 bytes) - **95% smaller!**
-const densed = 'Cqnu';
 ```
 
 ### Key Features
@@ -26,7 +24,7 @@ const densed = 'Cqnu';
 - 🔬 **Bit-level precision** - Only uses the exact bits needed for your data
 - 📦 **Type-safe schemas** - Define your data structure with full TypeScript support
 - 🔐 **URL-safe encoding** - Base64url by default, custom bases supported
-- ✅ **Built-in validation** - Ensure data integrity before encoding
+- ✅ **Built-in validation method** - Ensure data integrity before encoding
 - 📊 **Size analysis** - See exactly how many bits each field uses
 - 🔄 **Lossless compression** - Perfect round-trip encoding/decoding
 - 🚀 **Zero dependencies** - Lightweight and fast, only uses base javascript types
@@ -186,11 +184,6 @@ densing(ActionSchema, { action: { type: 'stop', force: true } }); // "Y" (3 bits
 
 // Pause action
 densing(ActionSchema, { action: { type: 'pause', duration: 1234 } }); // "k0g" (14 bits, 3 base64 chars vs JSON 43 chars, -93%)
-
-// --- More union examples ---
-densing(ActionSchema, { action: { type: 'pause', duration: 0 } });    // "gAA" (14 bits, 3 base64 chars vs JSON 40 chars, -93%)
-densing(ActionSchema, { action: { type: 'start', delay: 60 } });      // "PA"  (8 bits, 2 base64 chars vs JSON 38 chars, -95%)
-densing(ActionSchema, { action: { type: 'stop', force: false } });    // "Q"   (3 bits, 1 base64 char vs JSON 40 chars, -98%)
 ```
 
 ### Enum Arrays (Packed)
@@ -442,4 +435,4 @@ Built with TypeScript and tested with Bun.
 
 ---
 
-**Made with ❤️ for applications where every byte matters**
+**Made with ❤️ for applications where every character matters**
