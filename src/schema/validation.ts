@@ -10,7 +10,7 @@ export interface ValidationResult {
   errors: ValidationError[];
 }
 
-export function validate(schema: DenseSchema, data: any): ValidationResult {
+export const validate = (schema: DenseSchema, data: any): ValidationResult => {
   const errors: ValidationError[] = [];
 
   for (const field of schema.fields) {
@@ -21,9 +21,9 @@ export function validate(schema: DenseSchema, data: any): ValidationResult {
     valid: errors.length === 0,
     errors
   };
-}
+};
 
-function validateField(field: DenseField, value: any, path: string, errors: ValidationError[]) {
+const validateField = (field: DenseField, value: any, path: string, errors: ValidationError[]) => {
   // For optional fields, undefined/null is valid
   if (field.type === 'optional') {
     if (value === undefined || value === null) {
@@ -202,4 +202,4 @@ function validateField(field: DenseField, value: any, path: string, errors: Vali
       return;
     }
   }
-}
+};

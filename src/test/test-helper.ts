@@ -12,13 +12,13 @@ import {
  * Internal encode function with logging support
  * Only handles recursive types; delegates simple types to original codec
  */
-function encodeFieldWithLogging(
+const encodeFieldWithLogging = (
   w: BitWriter,
   field: DenseField,
   value: any,
   optionalLogAttributes: string[],
   depth: number = 0
-): void {
+): void => {
   const indent = '  '.repeat(depth);
   const shouldLog = optionalLogAttributes.includes(field.name);
 
@@ -64,18 +64,18 @@ function encodeFieldWithLogging(
     console.error(`${indent}✗ Error encoding field "${field.name}" (${field.type}):`, error);
     throw error;
   }
-}
+};
 
 /**
  * Internal decode function with logging support
  * Only handles recursive types; delegates simple types to original codec
  */
-function decodeFieldWithLogging(
+const decodeFieldWithLogging = (
   r: BitReader,
   field: DenseField,
   optionalLogAttributes: string[],
   depth: number = 0
-): any {
+): any => {
   const indent = '  '.repeat(depth);
   const shouldLog = optionalLogAttributes.includes(field.name);
 
@@ -125,7 +125,7 @@ function decodeFieldWithLogging(
     console.error(`${indent}✗ Error decoding field "${field.name}" (${field.type}):`, error);
     throw error;
   }
-}
+};
 
 /**
  * Debug wrapper for encoding with error handling and logging

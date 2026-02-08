@@ -5,7 +5,7 @@ import { resolve } from 'path';
 /**
  * Generate TypeScript type definitions from a schema
  */
-export function generateTypes(schema: DenseSchema, rootTypeName: string = 'SchemaData'): string {
+export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'SchemaData'): string => {
   const types: string[] = [];
   const processedTypes = new Set<string>();
 
@@ -21,22 +21,22 @@ export function generateTypes(schema: DenseSchema, rootTypeName: string = 'Schem
 
   // Return all generated types with the root type at the end
   return [...types, rootType].join('\n\n');
-}
+};
 
 /**
  * Generate types and write to a .d.ts file
  */
-export function generateTypesFile(schema: DenseSchema, outputPath: string, rootTypeName: string = 'SchemaData'): void {
+export const generateTypesFile = (schema: DenseSchema, outputPath: string, rootTypeName: string = 'SchemaData'): void => {
   const types = generateTypes(schema, rootTypeName);
   const fullPath = resolve(outputPath);
   writeFileSync(fullPath, types, 'utf-8');
   console.log(`Types written to: ${fullPath}`);
-}
+};
 
 /**
  * Get the TypeScript type for a field
  */
-function getFieldType(field: DenseField, types: string[], processedTypes: Set<string>): string {
+const getFieldType = (field: DenseField, types: string[], processedTypes: Set<string>): string => {
   switch (field.type) {
     case 'bool':
       return 'boolean';
@@ -116,18 +116,18 @@ function getFieldType(field: DenseField, types: string[], processedTypes: Set<st
     default:
       return 'unknown';
   }
-}
+};
 
 /**
  * Capitalize the first letter of a string
  */
-function capitalize(str: string): string {
+const capitalize = (str: string): string => {
   return str.charAt(0).toUpperCase() + str.slice(1);
-}
+};
 
 /**
  * Generate types and write to console (for convenience)
  */
-export function printTypes(schema: DenseSchema, rootTypeName: string = 'SchemaData'): void {
+export const printTypes = (schema: DenseSchema, rootTypeName: string = 'SchemaData'): void => {
   console.log(generateTypes(schema, rootTypeName));
-}
+};

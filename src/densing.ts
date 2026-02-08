@@ -76,7 +76,7 @@ export const getBitWidthForContantBitWidthFields = (field: ConstantBitWidthField
  * @param field - The field used as the template to dense the value with
  * @param value - The value to dense, should match the type of the field! This method doesn't do any validation of data!
  */
-export function densingField(w: BitWriter, field: DenseField, value: any): void {
+export const densingField = (w: BitWriter, field: DenseField, value: any): void => {
   switch (field.type) {
     case 'bool':
     case 'int':
@@ -135,7 +135,7 @@ export function densingField(w: BitWriter, field: DenseField, value: any): void 
       break;
     }
   }
-}
+};
 
 /**
  * Undensing method - key method to undense (unpack from encoded string) the data for a given schema from a string of a specific base
@@ -144,12 +144,12 @@ export function densingField(w: BitWriter, field: DenseField, value: any): void 
  * @param base - The base as string of characters, where every symbol is interpreted as a specific value
  * @returns The undense data
  */
-export function undensing(denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any {
+export const undensing = (denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any => {
   const r = BitReader.getFromBase(baseString, base);
   const obj: any = {};
   denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f)));
   return obj;
-}
+};
 
 export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthField, unsignedInt: number): any => {
   switch (field.type) {
@@ -170,7 +170,7 @@ export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthFie
  * @param denseField - The field used as the template to undense the value with
  * @returns The undense value, should match the type of the field! This method doesn't do any validation of data!
  */
-export function undensingField(r: BitReader, denseField: DenseField): any {
+export const undensingField = (r: BitReader, denseField: DenseField): any => {
   switch (denseField.type) {
     case 'bool':
     case 'int':
@@ -225,4 +225,4 @@ export function undensingField(r: BitReader, denseField: DenseField): any {
     case 'object':
       return Object.fromEntries(denseField.fields.map((f) => [f.name, undensingField(r, f)]));
   }
-}
+};
