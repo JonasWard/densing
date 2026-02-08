@@ -1,6 +1,4 @@
 import { DenseSchema, DenseField } from '../schema-type';
-import { writeFileSync } from 'fs';
-import { resolve } from 'path';
 
 /**
  * Generate TypeScript type definitions from a schema
@@ -25,12 +23,27 @@ export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'Schem
 
 /**
  * Generate types and write to a .d.ts file
+ * Note: This function requires Node.js fs module and will not work in browser environments
  */
-export const generateTypesFile = (schema: DenseSchema, outputPath: string, rootTypeName: string = 'SchemaData'): void => {
-  const types = generateTypes(schema, rootTypeName);
-  const fullPath = resolve(outputPath);
-  writeFileSync(fullPath, types, 'utf-8');
-  console.log(`Types written to: ${fullPath}`);
+export const generateTypesFile = async (
+  schema: DenseSchema,
+  outputPath: string,
+  rootTypeName: string = 'SchemaData'
+): Promise<void> => {
+  try {
+    // Dynamically import fs and path only when needed (Node.js environment)
+    const { writeFileSync } = await import('fs');
+    const { resolve } = await import('path');
+
+    const types = generateTypes(schema, rootTypeName);
+    const fullPath = resolve(outputPath);
+    writeFileSync(fullPath, types, 'utf-8');
+    console.log(`Types written to: ${fullPath}`);
+  } catch (error) {
+    throw new Error(
+      'generateTypesFile requires Node.js environment with fs module. Use generateTypes() instead for browser environments.'
+    );
+  }
 };
 
 /**
