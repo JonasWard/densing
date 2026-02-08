@@ -2,7 +2,7 @@
  * In Densing defined base types
  * You can provide your own as well
  */
-export const BaseTypes = ['base64url', 'baseQRCode45UrlSafe'] as const;
+export const BaseTypes = ['base64url', 'baseQRCode45UrlSafe', 'binary'] as const;
 
 /**
  * Predefined base types
@@ -11,10 +11,12 @@ export type BaseType = (typeof BaseTypes)[number];
 
 export const base64url = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; // normal base64 with + and / substituted for - and _ to make it url parameter safe.
 export const baseQRCode45UrlSafe = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.'; // only characters that are url parameter safe are used, that is only 38 of the 45 characters of the QRCode Base45 definition. However, this is still more efficient than using base64 for qr codes.
+export const binary = '01'; // binary base, only 0 and 1 are used
 
 const baseCharTypes: Record<BaseType, string> = {
   base64url,
-  baseQRCode45UrlSafe
+  baseQRCode45UrlSafe,
+  binary
 };
 
 const getMinRequiredCharsForBase = (bitWidth: number, baseChars: string): number =>
