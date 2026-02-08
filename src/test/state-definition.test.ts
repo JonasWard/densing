@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { schema, enumeration, int, object, array, optional, union } from '../schema/builder';
+import { schema, enumeration, int, object, array, optional, union, bool, fixed } from '../schema/builder';
 import { densing, undensing } from '../densing';
 
 // Helper for round-trip encoding/decoding
