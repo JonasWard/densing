@@ -18,7 +18,7 @@ import {
   calculateDenseDataSize,
   getDefaultData,
   generateTypes,
-  createRecursiveUnion
+  pointer
 } from '../index';
 
 const testResultComparisonMethod = (encoded: string, data: any, bitsInfo: string) =>
@@ -351,16 +351,11 @@ test('Custom Bases', () => {
 // ===== Recursive Structures Example =====
 test('Recursive Structures', () => {
   const ExpressionSchema = schema(
-    createRecursiveUnion(
-      'expr',
-      ['number', 'add', 'multiply'],
-      (recurse) => ({
-        number: [int('value', 0, 1000)],
-        add: [recurse('left'), recurse('right')],
-        multiply: [recurse('left'), recurse('right')]
-      }),
-      5 // max depth
-    )
+    union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+      number: [int('value', 0, 1000)],
+      add: [pointer('left', 'expr'), pointer('right', 'expr')],
+      multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
+    })
   );
 
   // Encode: (5 + 3) * 2

@@ -8,7 +8,8 @@ export type DenseField =
   | EnumArrayField
   | UnionField
   | OptionalField
-  | ObjectField;
+  | ObjectField
+  | PointerField;
 
 export interface BoolField {
   type: 'bool';
@@ -75,6 +76,12 @@ export interface ObjectField {
   type: 'object';
   name: string;
   fields: DenseField[];
+}
+
+export interface PointerField {
+  type: 'pointer';
+  name: string;
+  targetName: string;
 }
 
 export interface DenseSchema {

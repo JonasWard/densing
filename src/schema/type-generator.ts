@@ -92,6 +92,13 @@ const getFieldType = (field: DenseField, types: string[], processedTypes: Set<st
       return typeName;
     }
 
+    case 'pointer': {
+      // For pointers, generate a type based on the target field name
+      // This creates a self-referential type for recursive structures
+      const targetTypeName = capitalize(field.targetName);
+      return targetTypeName;
+    }
+
     case 'union': {
       const typeName = capitalize(field.name);
 

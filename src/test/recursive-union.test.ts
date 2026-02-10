@@ -1,153 +1,179 @@
-import { schema, int, createRecursiveUnion } from '../schema';
+import { describe, test, expect } from 'bun:test';
+import { schema, int, enumeration, union, pointer, fixed } from '../schema';
 import { densing, undensing } from '../densing';
 
-/**
- * Example 1: Mathematical Expression
- * Define the structure ONCE, reuse it recursively
- */
-console.log('\n=== Example 1: Recursive Expression (Define ONCE) ===');
+describe('Recursive Union Tests (with pointer)', () => {
+  /**
+   * Example 1: Mathematical Expression
+   * Using first-class pointer support for clean recursive definitions
+   */
+  test('recursive expression schema', () => {
+    const ExpressionSchema = schema(
+      union('expr', enumeration('type', ['number', 'add', 'multiply', 'divide']), {
+        number: [int('value', 0, 1000)],
+        add: [pointer('left', 'expr'), pointer('right', 'expr')],
+        multiply: [pointer('left', 'expr'), pointer('right', 'expr')],
+        divide: [pointer('left', 'expr'), pointer('right', 'expr')]
+      })
+    );
 
-// Define the expression structure ONCE
-const ExpressionSchema = schema(
-  createRecursiveUnion(
-    'expr',
-    ['number', 'add', 'multiply', 'divide'],
-    (recurse) => ({
-      number: [int('value', 0, 1000)],
-      add: [
-        recurse('left'), // Left operand - automatically recursive
-        recurse('right') // Right operand - automatically recursive
-      ],
-      multiply: [recurse('left'), recurse('right')],
-      divide: [recurse('left'), recurse('right')]
-    }),
-    3 // Max depth of 3 levels
-  )
-);
+    // Test data: ((5 + 3) * 2) / 4 = 4
+    const expressionData = {
+      expr: {
+        type: 'divide',
+        left: {
+          type: 'multiply',
+          left: {
+            type: 'add',
+            left: { type: 'number', value: 5 },
+            right: { type: 'number', value: 3 }
+          },
+          right: { type: 'number', value: 2 }
+        },
+        right: { type: 'number', value: 4 }
+      }
+    };
 
-// Test data: ((5 + 3) * 2) / 4 = 4
-const expressionData = {
-  expr: {
-    type: 'divide',
-    left: {
-      type: 'multiply',
-      left: {
-        type: 'add',
-        left: { type: 'number', value: 5 },
-        right: { type: 'number', value: 3 }
-      },
-      right: { type: 'number', value: 2 }
-    },
-    right: { type: 'number', value: 4 }
-  }
-};
+    const encoded = densing(ExpressionSchema, expressionData);
+    const decoded = undensing(ExpressionSchema, encoded);
 
-const encoded1 = densing(ExpressionSchema, expressionData);
-const decoded1 = undensing(ExpressionSchema, encoded1);
+    expect(decoded).toEqual(expressionData);
 
-console.log('Expression:', JSON.stringify(expressionData, null, 2));
-console.log('Encoded:', encoded1, `(${encoded1.length} chars)`);
-console.log('Match:', JSON.stringify(expressionData) === JSON.stringify(decoded1) ? '✓' : '✗');
+    console.log('\n=== Example 1: Recursive Expression ===');
+    console.log('Expression:', JSON.stringify(expressionData, null, 2));
+    console.log('Encoded:', encoded, `(${encoded.length} chars)`);
+    console.log('JSON size:', JSON.stringify(expressionData).length, 'chars');
+    console.log('Space saved:', Math.round((1 - encoded.length / JSON.stringify(expressionData).length) * 100), '%');
+  });
 
-/**
- * Example 2: Binary Tree with Any Value Type
- * Define ONCE with multiple value types
- */
-console.log('\n=== Example 2: Recursive Binary Tree (Define ONCE) ===');
+  /**
+   * Example 2: Binary Tree with Any Value Type
+   * Using pointers for naturally recursive tree structures
+   */
+  test('recursive binary tree schema', () => {
+    const BinaryTreeSchema = schema(
+      union('node', enumeration('type', ['leaf', 'branch']), {
+        leaf: [int('value', 0, 100)],
+        branch: [int('value', 0, 100), pointer('left', 'node'), pointer('right', 'node')]
+      })
+    );
 
-const BinaryTreeSchema = schema(
-  createRecursiveUnion(
-    'node',
-    ['leaf', 'branch'],
-    (recurse) => ({
-      leaf: [int('value', 0, 100)],
-      branch: [
-        int('value', 0, 100),
-        recurse('left'), // Left child - automatically recursive
-        recurse('right') // Right child - automatically recursive
-      ]
-    }),
-    3 // Max depth of 3 levels
-  )
-);
+    const treeData = {
+      node: {
+        type: 'branch',
+        value: 10,
+        left: {
+          type: 'branch',
+          value: 5,
+          left: { type: 'leaf', value: 2 },
+          right: { type: 'leaf', value: 7 }
+        },
+        right: {
+          type: 'branch',
+          value: 15,
+          left: { type: 'leaf', value: 12 },
+          right: { type: 'leaf', value: 20 }
+        }
+      }
+    };
 
-const treeData = {
-  node: {
-    type: 'branch',
-    value: 10,
-    left: {
-      type: 'branch',
-      value: 5,
-      left: { type: 'leaf', value: 2 },
-      right: { type: 'leaf', value: 7 }
-    },
-    right: {
-      type: 'branch',
-      value: 15,
-      left: { type: 'leaf', value: 12 },
-      right: { type: 'leaf', value: 20 }
-    }
-  }
-};
+    const encoded = densing(BinaryTreeSchema, treeData);
+    const decoded = undensing(BinaryTreeSchema, encoded);
 
-const encoded2 = densing(BinaryTreeSchema, treeData);
-const decoded2 = undensing(BinaryTreeSchema, encoded2);
+    expect(decoded).toEqual(treeData);
 
-console.log('Tree:', JSON.stringify(treeData, null, 2));
-console.log('Encoded:', encoded2, `(${encoded2.length} chars)`);
-console.log('Match:', JSON.stringify(treeData) === JSON.stringify(decoded2) ? '✓' : '✗');
+    console.log('\n=== Example 2: Recursive Binary Tree ===');
+    console.log('Tree:', JSON.stringify(treeData, null, 2));
+    console.log('Encoded:', encoded, `(${encoded.length} chars)`);
+    console.log('JSON size:', JSON.stringify(treeData).length, 'chars');
+    console.log('Space saved:', Math.round((1 - encoded.length / JSON.stringify(treeData).length) * 100), '%');
+  });
 
-console.log('\n=== Your Use Case: Method with Inputs ===');
-console.log(`
-// Here's how you define it ONCE for your use case:
+  /**
+   * Example 3: Method with Inputs (User's Use Case)
+   * Demonstrates mixed value types with recursive operations
+   */
+  test('method schema with recursive operations', () => {
+    const MethodSchema = schema(
+      union('method', enumeration('type', ['int_value', 'fixed_value', 'operation']), {
+        int_value: [int('value', 0, 1000)],
+        fixed_value: [fixed('value', -100, 100, 0.1)],
+        operation: [
+          enumeration('op', ['add', 'multiply', 'subtract']),
+          pointer('left', 'method'),
+          pointer('right', 'method')
+        ]
+      })
+    );
 
-const MethodSchema = schema(
-  createRecursiveUnion(
-    'method',
-    ['int_value', 'fixed_value', 'operation'],
-    (recurse) => ({
-      // Terminal case: just a value
-      int_value: [int('value', 0, 1000)],
-      fixed_value: [fixed('value', -100, 100, 0.1)],
-      
-      // Recursive case: operation with inputs
-      // Each input can be EITHER int_value, fixed_value, OR another operation!
-      operation: [
-        enumeration('op', ['add', 'multiply', 'subtract']),
-        recurse('left'),   // Can be any of the 3 types
-        recurse('right')   // Can be any of the 3 types
-      ]
-    }),
-    4 // Max recursion depth
-  )
-);
+    // Usage: (5 * 3.5) + 10 = 27.5
+    const methodData = {
+      method: {
+        type: 'operation',
+        op: 'add',
+        left: {
+          type: 'operation',
+          op: 'multiply',
+          left: { type: 'int_value', value: 5 },
+          right: { type: 'fixed_value', value: 3.5 }
+        },
+        right: { type: 'int_value', value: 10 }
+      }
+    };
 
-// Usage - you only defined the structure ONCE above!
-// Now you can nest operations freely:
-{
-  method: {
-    type: 'operation',
-    op: 0, // add
-    left: {
-      type: 'operation',
-      op: 1, // multiply
-      left: { type: 'int_value', value: 5 },
-      right: { type: 'fixed_value', value: 3.5 }
-    },
-    right: { type: 'int_value', value: 10 }
-  }
-}
+    const encoded = densing(MethodSchema, methodData);
+    const decoded = undensing(MethodSchema, encoded);
 
-Result: (5 * 3.5) + 10 = 27.5
-`);
+    expect(decoded).toEqual(methodData);
 
-console.log('\n=== Space Efficiency ===');
-console.log(`Expression JSON: ${JSON.stringify(expressionData).length} bytes -> Base64: ${encoded1.length} chars`);
-console.log(`Tree JSON: ${JSON.stringify(treeData).length} bytes -> Base64: ${encoded2.length} chars`);
+    console.log('\n=== Example 3: Method with Inputs ===');
+    console.log('Method:', JSON.stringify(methodData, null, 2));
+    console.log('Encoded:', encoded, `(${encoded.length} chars)`);
+    console.log('JSON size:', JSON.stringify(methodData).length, 'chars');
+    console.log('Space saved:', Math.round((1 - encoded.length / JSON.stringify(methodData).length) * 100), '%');
+  });
 
-console.log('\n=== Key Benefits ===');
-console.log('✓ Define the recursive structure ONCE');
-console.log('✓ Automatically expands to your max depth');
-console.log('✓ No manual nesting required!');
+  test('deep recursion (linked list)', () => {
+    const ListSchema = schema(
+      union('list', enumeration('type', ['empty', 'cons']), {
+        empty: [],
+        cons: [int('head', 0, 255), pointer('tail', 'list')]
+      })
+    );
+
+    // List: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    const buildList = (values: number[]): any => {
+      if (values.length === 0) {
+        return { type: 'empty' };
+      }
+      return {
+        type: 'cons',
+        head: values[0],
+        tail: buildList(values.slice(1))
+      };
+    };
+
+    const listData = {
+      list: buildList([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    };
+
+    const encoded = densing(ListSchema, listData);
+    const decoded = undensing(ListSchema, encoded);
+
+    expect(decoded).toEqual(listData);
+
+    console.log('\n=== Example 4: Deep Recursion (List) ===');
+    console.log('List length: 10 elements');
+    console.log('Encoded:', encoded, `(${encoded.length} chars)`);
+    console.log('JSON size:', JSON.stringify(listData).length, 'chars');
+    console.log('Space saved:', Math.round((1 - encoded.length / JSON.stringify(listData).length) * 100), '%');
+  });
+});
+
+console.log('\n=== Key Benefits of Pointer-Based Recursion ===');
+console.log('✓ Define the recursive structure ONCE with pointer()');
+console.log('✓ Unlimited depth - no artificial limits!');
+console.log('✓ No manual nesting required');
 console.log('✓ Clean, maintainable code');
-console.log('✓ Easy to change - just modify one place');
+console.log('✓ Easy to change - just modify the union definition');
+console.log('✓ Natural TypeScript types generated automatically');

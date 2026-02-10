@@ -8,7 +8,8 @@ import {
   UnionField,
   EnumArrayField,
   OptionalField,
-  ObjectField
+  ObjectField,
+  PointerField
 } from '../schema-type';
 
 /* =========================
@@ -143,6 +144,18 @@ export const object = (name: string, ...fields: DenseField[]): ObjectField => {
     type: 'object',
     name,
     fields
+  };
+};
+
+/* =========================
+ * Pointer Field Helpers
+ * ========================= */
+
+export const pointer = (name: string, targetName: string): PointerField => {
+  return {
+    type: 'pointer',
+    name,
+    targetName
   };
 };
 

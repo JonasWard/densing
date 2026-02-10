@@ -2,6 +2,41 @@
 import { BitWriter, BitReader, BaseType } from './helpers';
 import { DenseSchema, DenseField, ConstantBitWidthField } from './schema-type';
 
+// Helper to resolve a field by name in a schema (for pointer support)
+const resolveFieldByName = (schema: DenseSchema, targetName: string): DenseField | undefined => {
+  const findField = (fields: DenseField[], visited = new Set<DenseField>()): DenseField | undefined => {
+    for (const field of fields) {
+      if (visited.has(field)) continue; // Prevent infinite loops
+      visited.add(field);
+      
+      if (field.name === targetName) return field;
+      
+      // Search nested fields
+      if (field.type === 'object') {
+        const found = findField(field.fields, visited);
+        if (found) return found;
+      } else if (field.type === 'union') {
+        for (const variantFields of Object.values(field.variants)) {
+          const found = findField(variantFields, visited);
+          if (found) return found;
+        }
+      } else if (field.type === 'array') {
+        // For arrays, check if the item itself is what we're looking for
+        if (field.items.name === targetName) return field.items;
+        // Also recurse into the items
+        const found = findField([field.items], visited);
+        if (found) return found;
+      } else if (field.type === 'optional') {
+        const found = findField([field.field], visited);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  };
+  
+  return findField(schema.fields);
+};
+
 // bit-width helper methods
 export const bitsForRange = (range: number): number => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
 const scaleForPrecision = (precision: number): number => Math.round(1 / precision);
@@ -41,7 +76,7 @@ const sizeForOptions = (options: readonly string[]): number => options.length;
  */
 export const densing = (denseSchema: DenseSchema, data: any, base: BaseType | string = 'base64url'): string => {
   const w = new BitWriter();
-  denseSchema.fields.forEach((f) => densingField(w, f, data[f.name]));
+  denseSchema.fields.forEach((f) => densingField(w, f, data[f.name], denseSchema));
   return w.getFromBase(base);
 };
 
@@ -76,8 +111,9 @@ export const getBitWidthForContantBitWidthFields = (field: ConstantBitWidthField
  * @param w - The bit writer to write the dense data to
  * @param field - The field used as the template to dense the value with
  * @param value - The value to dense, should match the type of the field! This method doesn't do any validation of data!
+ * @param schema - The root schema (for resolving pointers)
  */
-export const densingField = (w: BitWriter, field: DenseField, value: any): void => {
+export const densingField = (w: BitWriter, field: DenseField, value: any, schema?: DenseSchema): void => {
   switch (field.type) {
     case 'bool':
     case 'int':
@@ -90,7 +126,7 @@ export const densingField = (w: BitWriter, field: DenseField, value: any): void 
       const arrayLengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
       if (arrayLengthBits !== 0)
         w.writeUInt(uIntForMinMaxLength((value as any[]).length, field.minLength), arrayLengthBits);
-      (value as any[]).forEach((v) => densingField(w, field.items, v));
+      (value as any[]).forEach((v) => densingField(w, field.items, v, schema));
       break;
     }
 
@@ -99,7 +135,7 @@ export const densingField = (w: BitWriter, field: DenseField, value: any): void 
       const discIdx = field.discriminator.options.indexOf(discValue);
       if (discIdx === -1) throw new Error(`Invalid union discriminator value: ${discValue}`);
       w.writeUInt(discIdx, bitsForOptions(field.discriminator.options));
-      field.variants[discValue].forEach((f) => densingField(w, f, value[f.name]));
+      field.variants[discValue].forEach((f) => densingField(w, f, value[f.name], schema));
       break;
     }
 
@@ -125,14 +161,22 @@ export const densingField = (w: BitWriter, field: DenseField, value: any): void 
       const isPresent = value !== undefined && value !== null;
       w.writeUInt(isPresent ? 1 : 0, 1);
       if (isPresent) {
-        densingField(w, field.field, value);
+        densingField(w, field.field, value, schema);
       }
       break;
     }
 
     case 'object': {
       if (typeof value !== 'object' || value === null) throw new Error('value of `object` is not an object');
-      field.fields.forEach((f) => densingField(w, f, value[f.name]));
+      field.fields.forEach((f) => densingField(w, f, value[f.name], schema));
+      break;
+    }
+
+    case 'pointer': {
+      if (!schema) throw new Error(`Pointer field "${field.name}" requires schema context`);
+      const targetField = resolveFieldByName(schema, field.targetName);
+      if (!targetField) throw new Error(`Pointer field "${field.name}" references unknown field "${field.targetName}"`);
+      densingField(w, targetField, value, schema);
       break;
     }
   }
@@ -148,7 +192,7 @@ export const densingField = (w: BitWriter, field: DenseField, value: any): void 
 export const undensing = (denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any => {
   const r = BitReader.getFromBase(baseString, base);
   const obj: any = {};
-  denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f)));
+  denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f, denseSchema)));
   return obj;
 };
 
@@ -169,9 +213,10 @@ export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthFie
  * Internal Helper method to undense a single field of the schema from the given bit reader
  * @param r - The bit reader to read the dense data from
  * @param denseField - The field used as the template to undense the value with
+ * @param schema - The root schema (for resolving pointers)
  * @returns The undense value, should match the type of the field! This method doesn't do any validation of data!
  */
-export const undensingField = (r: BitReader, denseField: DenseField): any => {
+export const undensingField = (r: BitReader, denseField: DenseField, schema?: DenseSchema): any => {
   switch (denseField.type) {
     case 'bool':
     case 'int':
@@ -187,14 +232,14 @@ export const undensingField = (r: BitReader, denseField: DenseField): any => {
         r.readUInt(bitsForMinMaxLength(denseField.minLength, denseField.maxLength)),
         denseField.minLength
       );
-      return Array.from({ length }, () => undensingField(r, denseField.items));
+      return Array.from({ length }, () => undensingField(r, denseField.items, schema));
     }
 
     case 'union': {
       const idx = r.readUInt(bitsForOptions(denseField.discriminator.options));
       const key = denseField.discriminator.options[idx];
       const obj: any = { [denseField.discriminator.name]: key };
-      denseField.variants[key].forEach((f) => (obj[f.name] = undensingField(r, f)));
+      denseField.variants[key].forEach((f) => (obj[f.name] = undensingField(r, f, schema)));
       return obj;
     }
 
@@ -218,12 +263,20 @@ export const undensingField = (r: BitReader, denseField: DenseField): any => {
 
     case 'optional':
       return Boolean(r.readUInt(1))
-        ? undensingField(r, denseField.field)
+        ? undensingField(r, denseField.field, schema)
         : denseField.defaultValue !== undefined
         ? denseField.defaultValue
         : null;
 
     case 'object':
-      return Object.fromEntries(denseField.fields.map((f) => [f.name, undensingField(r, f)]));
+      return Object.fromEntries(denseField.fields.map((f) => [f.name, undensingField(r, f, schema)]));
+
+    case 'pointer': {
+      if (!schema) throw new Error(`Pointer field "${denseField.name}" requires schema context`);
+      const targetField = resolveFieldByName(schema, denseField.targetName);
+      if (!targetField)
+        throw new Error(`Pointer field "${denseField.name}" references unknown field "${denseField.targetName}"`);
+      return undensingField(r, targetField, schema);
+    }
   }
 };
