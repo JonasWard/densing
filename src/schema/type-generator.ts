@@ -39,7 +39,7 @@ export const generateTypesFile = async (
     const fullPath = resolve(outputPath);
     writeFileSync(fullPath, types, 'utf-8');
     console.log(`Types written to: ${fullPath}`);
-  } catch (error) {
+  } catch {
     throw new Error(
       'generateTypesFile requires Node.js environment with fs module. Use generateTypes() instead for browser environments.'
     );

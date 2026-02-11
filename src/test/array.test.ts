@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { schema, int, array, enumArray, enumeration, bool } from '../schema/builder';
+import { schema, int, array, bool } from '../schema/builder';
 import { densing, undensing } from '../densing';
 
 // Binary encoding tests for arrays

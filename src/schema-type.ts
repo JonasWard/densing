@@ -89,3 +89,15 @@ export interface DenseSchema {
 }
 
 export type ConstantBitWidthField = BoolField | IntField | EnumField | FixedPointField;
+export const FieldTypes = [
+  'bool',
+  'int',
+  'enum',
+  'fixed',
+  'array',
+  'enum_array',
+  'union',
+  'optional',
+  'object',
+  'pointer'
+] as const;

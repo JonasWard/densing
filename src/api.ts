@@ -52,7 +52,7 @@ const resolveDenseFieldByNameForPointer = (
 export const getDenseFieldBitWidthRange = (
   field: DenseField,
   schema?: DenseSchema,
-  visited = new Set<string>()
+  visited: Set<string> = new Set<string>()
 ): { min: number; max: number } => {
   // Track visited fields to prevent infinite recursion with pointers
   const fieldKey = `${field.type}:${field.name}`;
@@ -319,7 +319,8 @@ export const getFieldByPath = (schema: DenseSchema, path: string): DenseField | 
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
-    const fields: DenseField[] | undefined = i === 0 ? schema.fields : (current as ObjectField)?.fields;
+    const fields: DenseField[] | undefined =
+      i === 0 ? schema.fields : current ? (current as ObjectField).fields : undefined;
     if (!fields) return null;
 
     current = fields.find((f: DenseField) => f.name === part) || null;
@@ -334,6 +335,36 @@ export const getFieldByPath = (schema: DenseSchema, path: string): DenseField | 
   return current;
 };
 
+const nestedTypes = ['object', 'array', 'optional', 'union'] as const;
+
+const walkField = (
+  field: DenseField,
+  callback: (field: DenseField, path: string, parent?: DenseField) => void,
+  prefix: string = ''
+) => {
+  const fieldPath = prefix ? `${prefix}.${field.name}` : field.name;
+  callback(field, fieldPath);
+  switch (field.type) {
+    case 'object':
+      field.fields.forEach((f) => walkField(f, callback, fieldPath));
+      break;
+    case 'array':
+      walkField(field.items, callback, `${fieldPath}[]`);
+      break;
+    case 'optional':
+      walkField(field.field, callback, fieldPath);
+      break;
+    case 'union':
+      // Walk the discriminator field
+      walkField(field.discriminator, callback, fieldPath);
+      // Walk all variant fields
+      Object.values(field.variants).forEach((variantFields) =>
+        variantFields.forEach((f) => walkField(f, callback, fieldPath))
+      );
+      break;
+  }
+};
+
 /**
  * Walk all fields in schema (including nested)
  * @example walkDenseSchema(schema, (field, path) => console.log(path, field))
@@ -342,21 +373,7 @@ export const walkDenseSchema = (
   schema: DenseSchema,
   callback: (field: DenseField, path: string, parent?: DenseField) => void,
   prefix = ''
-): void => {
-  schema.fields.forEach((field) => {
-    const fieldPath = prefix ? `${prefix}.${field.name}` : field.name;
-    callback(field, fieldPath);
-
-    // Recurse into nested structures
-    if (field.type === 'object') {
-      walkDenseSchema({ fields: field.fields }, callback, fieldPath);
-    } else if (field.type === 'array' && field.items.type === 'object') {
-      walkDenseSchema({ fields: (field.items as ObjectField).fields }, callback, `${fieldPath}[]`);
-    } else if (field.type === 'optional' && field.field.type === 'object') {
-      walkDenseSchema({ fields: (field.field as ObjectField).fields }, callback, fieldPath);
-    }
-  });
-};
+): void => schema.fields.forEach((f) => walkField(f, callback, prefix));
 
 /**
  * Get all paths in schema

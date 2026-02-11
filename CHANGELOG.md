@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-02-11
+
+### Added
+
+- **Schema Introspection Tests**: 19 comprehensive tests for `walkDenseSchema` and `getAllDenseSchemaPaths` API methods
+  - Tests for nested objects, arrays, optionals, unions, and pointers
+  - Tests for deeply nested structures (3+ levels)
+  - Tests for custom prefix parameter
+  - Tests for field metadata collection
+  - Tests for arrays of objects and union with nested objects
+- **Meta-Schema Utilities**: New `getAllUniqueNamesAndOptions()` function with 15 tests
+  - Collects all field names and enum options from a schema
+  - Supports all field types including pointer fields
+  - Automatic deduplication of shared names
+  - Tested with real-world GLSL Ray Marching schema (50+ unique names)
+- **Schema Compression Testing**: Added `zstd-codec` dev dependency for schema compression tests
+  - GLSL Ray Marching schema compresses 75.30% (4.05x smaller: 2935 → 725 bytes)
+  - Round-trip integrity verification
+  - Useful for schema storage, versioning, and URL embedding
+
+### Fixed
+
+- **`walkField` Path Construction**: Fixed incorrect path building in nested fields
+  - Paths now correctly use `fieldPath` as prefix instead of original `prefix`
+  - Union fields now properly walk discriminator field
+  - All nested paths are now correctly formatted
+- **`getAllUniqueNamesAndOptions` Bug**: Fixed accumulation of names across schema walk
+  - Now correctly passes the same `Set` instance throughout traversal
+  - Collects all field names, not just enum/pointer fields
+  - Properly handles enum_array discriminator names
+
+### Changed
+
+- **Test Coverage**: Total test count increased from 352 to 382 tests
+  - `api.test.ts`: 28 → 47 tests
+  - New `meta-schema.test.ts`: 25 tests (including compression test)
+- **`walkDenseSchemaField`**: Now collects all field names and properly recurses through container types
+
 ## [0.2.0] - 2026-02-10
 
 ### Added

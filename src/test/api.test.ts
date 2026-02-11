@@ -284,6 +284,161 @@ test('walkDenseSchema - visits nested fields', () => {
   expect(paths).toEqual(['id', 'settings', 'settings.enabled', 'settings.timeout']);
 });
 
+test('walkDenseSchema - provides field objects to callback', () => {
+  const fieldTypes: string[] = [];
+  walkDenseSchema(SimpleSchema, (field) => {
+    fieldTypes.push(field.type);
+  });
+
+  expect(fieldTypes).toEqual(['bool', 'int', 'fixed', 'enum']);
+});
+
+test('walkDenseSchema - handles array items', () => {
+  const paths: string[] = [];
+  walkDenseSchema(ArraySchema, (field, path) => {
+    paths.push(path);
+  });
+
+  // Should visit the array itself and its items
+  expect(paths).toContain('items');
+  expect(paths).toContain('items[].value');
+});
+
+test('walkDenseSchema - handles optional fields', () => {
+  const paths: string[] = [];
+  walkDenseSchema(OptionalSchema, (field, path) => {
+    paths.push(path);
+  });
+
+  expect(paths).toEqual(['required', 'optional', 'optional.optionalValue']);
+});
+
+test('walkDenseSchema - handles union variants', () => {
+  const paths: string[] = [];
+  walkDenseSchema(UnionSchema, (field, path) => {
+    paths.push(path);
+  });
+
+  // Should visit the discriminator and all variant fields
+  expect(paths).toContain('action');
+  expect(paths).toContain('action.actionType');
+  expect(paths).toContain('action.delay'); // start variant
+  expect(paths).toContain('action.force'); // stop variant
+});
+
+test('walkDenseSchema - deeply nested structures', () => {
+  const DeeplyNestedSchema = schema(
+    object(
+      'level1',
+      object(
+        'level2',
+        object('level3', int('deepValue', 0, 100), bool('deepFlag')),
+        array('deepArray', 0, 3, int('item', 0, 10))
+      ),
+      optional('optionalNested', int('nestedInt', 0, 50))
+    )
+  );
+
+  const paths: string[] = [];
+  walkDenseSchema(DeeplyNestedSchema, (field, path) => {
+    paths.push(path);
+  });
+
+  expect(paths).toContain('level1');
+  expect(paths).toContain('level1.level2');
+  expect(paths).toContain('level1.level2.level3');
+  expect(paths).toContain('level1.level2.level3.deepValue');
+  expect(paths).toContain('level1.level2.level3.deepFlag');
+  expect(paths).toContain('level1.level2.deepArray');
+  expect(paths).toContain('level1.level2.deepArray[].item');
+  expect(paths).toContain('level1.optionalNested');
+  expect(paths).toContain('level1.optionalNested.nestedInt');
+});
+
+test('walkDenseSchema - with custom prefix', () => {
+  const paths: string[] = [];
+  walkDenseSchema(SimpleSchema, (field, path) => {
+    paths.push(path);
+  }, 'config');
+
+  expect(paths).toEqual(['config.enabled', 'config.count', 'config.temperature', 'config.color']);
+});
+
+test('walkDenseSchema - collects field metadata', () => {
+  const fieldInfo: Array<{ path: string; type: string; name: string }> = [];
+  walkDenseSchema(NestedSchema, (field, path) => {
+    fieldInfo.push({ path, type: field.type, name: field.name });
+  });
+
+  expect(fieldInfo).toEqual([
+    { path: 'id', type: 'int', name: 'id' },
+    { path: 'settings', type: 'object', name: 'settings' },
+    { path: 'settings.enabled', type: 'bool', name: 'enabled' },
+    { path: 'settings.timeout', type: 'int', name: 'timeout' },
+  ]);
+});
+
+test('walkDenseSchema - array of objects', () => {
+  const ArrayOfObjectsSchema = schema(
+    array(
+      'users',
+      0,
+      5,
+      object('user', int('id', 0, 1000), bool('active'), enumeration('role', ['admin', 'user', 'guest']))
+    )
+  );
+
+  const paths: string[] = [];
+  walkDenseSchema(ArrayOfObjectsSchema, (field, path) => {
+    paths.push(path);
+  });
+
+  expect(paths).toContain('users');
+  expect(paths).toContain('users[].user');
+  expect(paths).toContain('users[].user.id');
+  expect(paths).toContain('users[].user.active');
+  expect(paths).toContain('users[].user.role');
+});
+
+test('walkDenseSchema - union with nested objects', () => {
+  const ComplexUnionSchema = schema(
+    union(
+      'message',
+      enumeration('messageType', ['text', 'image', 'file']),
+      {
+        text: [int('length', 0, 1000)],
+        image: [object('imageData', int('width', 0, 4096), int('height', 0, 4096))],
+        file: [object('fileData', int('size', 0, 1000000), bool('compressed'))],
+      }
+    )
+  );
+
+  const paths: string[] = [];
+  walkDenseSchema(ComplexUnionSchema, (field, path) => {
+    paths.push(path);
+  });
+
+  expect(paths).toContain('message');
+  expect(paths).toContain('message.messageType');
+  expect(paths).toContain('message.length'); // text variant
+  expect(paths).toContain('message.imageData'); // image variant
+  expect(paths).toContain('message.imageData.width');
+  expect(paths).toContain('message.imageData.height');
+  expect(paths).toContain('message.fileData'); // file variant
+  expect(paths).toContain('message.fileData.size');
+  expect(paths).toContain('message.fileData.compressed');
+});
+
+test('walkDenseSchema - empty schema', () => {
+  const EmptySchema = schema();
+  const paths: string[] = [];
+  walkDenseSchema(EmptySchema, (field, path) => {
+    paths.push(path);
+  });
+
+  expect(paths).toEqual([]);
+});
+
 test('getAllDenseSchemaPaths - simple schema', () => {
   const paths = getAllDenseSchemaPaths(SimpleSchema);
   expect(paths).toEqual(['enabled', 'count', 'temperature', 'color']);
@@ -292,6 +447,56 @@ test('getAllDenseSchemaPaths - simple schema', () => {
 test('getAllDenseSchemaPaths - nested schema', () => {
   const paths = getAllDenseSchemaPaths(NestedSchema);
   expect(paths).toEqual(['id', 'settings', 'settings.enabled', 'settings.timeout']);
+});
+
+test('getAllDenseSchemaPaths - includes all nested levels', () => {
+  const ComplexSchema = schema(
+    int('id', 0, 100),
+    array('items', 0, 5, int('value', 0, 10)),
+    object('config', bool('enabled'), optional('port', int('portNum', 1024, 65535)))
+  );
+
+  const paths = getAllDenseSchemaPaths(ComplexSchema);
+
+  expect(paths).toContain('id');
+  expect(paths).toContain('items');
+  expect(paths).toContain('items[].value');
+  expect(paths).toContain('config');
+  expect(paths).toContain('config.enabled');
+  expect(paths).toContain('config.port');
+  expect(paths).toContain('config.port.portNum');
+});
+
+test('getAllDenseSchemaPaths - union schema', () => {
+  const paths = getAllDenseSchemaPaths(UnionSchema);
+
+  expect(paths).toContain('action');
+  expect(paths).toContain('action.actionType');
+  expect(paths).toContain('action.delay');
+  expect(paths).toContain('action.force');
+});
+
+test('getAllDenseSchemaPaths - preserves path order', () => {
+  const OrderedSchema = schema(
+    int('first', 0, 10),
+    int('second', 0, 10),
+    int('third', 0, 10),
+    int('fourth', 0, 10)
+  );
+
+  const paths = getAllDenseSchemaPaths(OrderedSchema);
+  expect(paths).toEqual(['first', 'second', 'third', 'fourth']);
+});
+
+test('getAllDenseSchemaPaths - enum array', () => {
+  const EnumArraySchema = schema(
+    enumArray('colors', enumeration('color', ['red', 'green', 'blue']), 0, 5),
+    int('count', 0, 100)
+  );
+
+  const paths = getAllDenseSchemaPaths(EnumArraySchema);
+  expect(paths).toContain('colors');
+  expect(paths).toContain('count');
 });
 
 // ===== EnumArray Tests =====

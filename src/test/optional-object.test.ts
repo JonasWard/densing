@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { schema, bool, int, fixed, enumeration, optional, object } from '../schema/builder';
+import { schema, bool, int, fixed, optional, object } from '../schema/builder';
 import { densing, undensing } from '../densing';
 import { getDefaultData } from '../schema/default-data';
 
