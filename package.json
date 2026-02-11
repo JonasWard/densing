@@ -1,6 +1,6 @@
 {
   "name": "densing",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Bit and base level packing for TypeScript. Perfect for URLs, QR codes, and other storage constrained contexts.",
   "author": "Jonas Ward",
   "license": "MIT",
