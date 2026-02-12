@@ -23,7 +23,7 @@ export const validate = (schema: DenseSchema, data: any): ValidationResult => {
   };
 };
 
-export const validateField = (field: DenseField, value: any, path: string, errors: ValidationError[]) => {
+export const validateField = (field: DenseField, value: any, path: string, errors: ValidationError[]): any => {
   // For optional fields, undefined/null is valid
   if (field.type === 'optional') {
     if (value === undefined || value === null) {
