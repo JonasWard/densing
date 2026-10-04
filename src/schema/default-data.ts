@@ -1,4 +1,4 @@
-import { DenseSchema, DenseField } from '../schema-type';
+import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 
 /**
  * Helper method to get the default state as defined by a schema
@@ -61,5 +61,8 @@ const getDefaultValueForField = (field: DenseField, schema?: DenseSchema): any =
       // Return null as a placeholder - user must provide actual data
       return null;
     }
+
+    default:
+      return assertNeverDenseField(field);
   }
 };

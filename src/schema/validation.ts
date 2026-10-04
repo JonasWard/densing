@@ -1,4 +1,4 @@
-import { DenseSchema, DenseField } from '../schema-type';
+import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 
 export interface ValidationError {
   path: string;
@@ -209,5 +209,8 @@ export const validateField = (field: DenseField, value: any, path: string, error
       // The actual type validation will happen during encoding
       return;
     }
+
+    default:
+      assertNeverDenseField(field);
   }
 };
