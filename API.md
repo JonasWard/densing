@@ -129,6 +129,23 @@ console.log(sizeInfo);
 
 ## Schema Introspection API
 
+### Path grammar
+
+`getFieldByPath`, `walkDenseSchema` and `getAllDenseSchemaPaths` share one path format: every nested
+field adds its own name as a segment, separated by `.`, and an array segment gets `[]` when the path
+continues into its items.
+
+| Field | Example | Refers to |
+|---|---|---|
+| object | `settings.enabled` | a field of the object |
+| array | `users[].user`, `users[].user.id` | the items field (and its fields) |
+| optional | `maybe.inner` | the wrapped field |
+| union | `action.type`, `action.delay` | the discriminator, or a field of any variant (the first variant wins when several declare the name) |
+| pointer | `expr.left.value` | `getFieldByPath` continues in the pointer's target; the walk does not descend into pointers |
+
+Every path the walk produces resolves with `getFieldByPath`. For compatibility, `getFieldByPath`
+also accepts `list.child` for a field of an array's object items (`list[].item.child`).
+
 ### `getFieldByPath(schema: DenseSchema, path: string): DenseField | null`
 
 Get a field definition by its path.
@@ -139,6 +156,11 @@ const field = getFieldByPath(schema, 'deviceId');
 
 // Nested field
 const nestedField = getFieldByPath(schema, 'network.port');
+
+// Array items, union variants, pointers
+getFieldByPath(schema, 'users[].user.id');
+getFieldByPath(schema, 'action.delay');
+getFieldByPath(schema, 'expr.left.value');
 
 // Returns null if not found
 const missing = getFieldByPath(schema, 'nonexistent'); // null
@@ -154,7 +176,8 @@ const missing = getFieldByPath(schema, 'nonexistent'); // null
 
 ### `walkDenseSchema(schema: DenseSchema, callback: (field, path, parent?) => void, prefix?: string)`
 
-Visit all fields in a schema, including nested ones.
+Visit all fields in a schema, including nested ones. The callback receives each field, its path
+(see the path grammar) and its parent field (`undefined` at the top level).
 
 ```typescript
 walkDenseSchema(schema, (field, path) => {

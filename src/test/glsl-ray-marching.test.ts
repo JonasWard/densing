@@ -76,7 +76,7 @@ export const PreProcessingMethodLabels = preProcessingMethods.map((value, index)
 export const PostProcessingMethodLabels = postProcessingMethods.map((value, index) => ({ value: index, label: value }));
 
 // Build the GLSL Ray Marching Schema
-const GLSLRayMarchingSchema = schema(
+export const GLSLRayMarchingSchema = schema(
   object(
     'Viewport',
     optional('CanvasFullScreen', object('Canvas', int('CanvasWidth', 200, 4200), int('CanvasHeight', 200, 4200))),

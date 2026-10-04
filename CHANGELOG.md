@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **One path grammar**: `getFieldByPath` resolves every path `walkDenseSchema` / `getAllDenseSchemaPaths` produce (array items `list[].item`, optional inner fields, union discriminators and variant fields), and continues through pointers. Previously most nested paths returned `null`. The old `list.child` form keeps working. The grammar is documented in API.md ([#15](https://github.com/JonasWard/densing/issues/15))
+- **`walkDenseSchema`** passes the `parent` argument its callback type always declared
 - **`validate` follows pointers**: values behind a `pointer` were never checked ([#13](https://github.com/JonasWard/densing/issues/13))
 - **`getDefaultData` for recursive schemas** returns finite, encodable data: the default discriminator is kept, and recursion below it ends at the smallest variant. Pointers previously defaulted to `null`, which `densing` could not encode ([#13](https://github.com/JonasWard/densing/issues/13))
 - **BREAKING: `undensing` rejects malformed input** with a `DenseDecodeError` (with `path`) instead of returning wrong data or crashing: characters outside the alphabet (previously read as digit −1), stored values above a field's maximum (an `int` above `max`, an enum index past the options, which decoded to `undefined`), union discriminator indices past the options (previously a raw `TypeError`), array lengths above `maxLength`, invalid `enum_array` content, too few characters, trailing characters, non-zero padding bits and over-capacity base38 strings. Every payload now has exactly one valid spelling
