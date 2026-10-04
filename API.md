@@ -13,9 +13,11 @@ The API provides two main categories of functionality:
 
 ### Static Size Analysis (Without Data)
 
-#### `getDenseFieldBitWidthRange(field: DenseField): { min: number; max: number }`
+#### `getDenseFieldBitWidthRange(field: DenseField, schema?: DenseSchema): { min: number; max: number }`
 
 Returns the minimum and maximum number of bits that can be used to encode a field.
+Pass the root `schema` when the field contains `pointer` fields. For a recursive schema `max` is
+`Infinity` (there is no static upper bound) and `min` is the size of the smallest finite value.
 
 ```typescript
 const field = schema.fields.find((f) => f.name === 'optional');
