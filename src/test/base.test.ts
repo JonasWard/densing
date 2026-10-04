@@ -6,7 +6,7 @@ import {
   getBigIntFromBase64,
   getBigIntFrombaseQRCode45UrlSafe,
   getbaseQRCode45UrlSafeFromBigInt
-} from '../helpers';
+} from '../encoding/radix';
 
 test('base64 back and forward bigint conversion', () => {
   const BigIntData = 12345678901234567890133254348586883996588395981234n ** 100n;

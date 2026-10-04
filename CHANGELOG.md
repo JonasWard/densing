@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **BREAKING: base helpers are exact inverses** ([#12](https://github.com/JonasWard/densing/issues/12)): `getBase64FromBigInt(value, bitWidth)` / `getbaseQRCode45UrlSafeFromBigInt` no longer left-shift the value; `bitWidth` now only pads with leading zero digits, and a value that does not fit in it throws. They are plain radix conversion; the bit-stream alignment lives in `BitWriter` / `BitReader`. Payloads from `densing` are unchanged
+- **Custom alphabets are validated**: fewer than two characters (a single character used to loop forever), duplicate characters and characters outside the BMP throw ([#16](https://github.com/JonasWard/densing/issues/16))
 - **One path grammar**: `getFieldByPath` resolves every path `walkDenseSchema` / `getAllDenseSchemaPaths` produce (array items `list[].item`, optional inner fields, union discriminators and variant fields), and continues through pointers. Previously most nested paths returned `null`. The old `list.child` form keeps working. The grammar is documented in API.md ([#15](https://github.com/JonasWard/densing/issues/15))
 - **`walkDenseSchema`** passes the `parent` argument its callback type always declared
 - **`validate` follows pointers**: values behind a `pointer` were never checked ([#13](https://github.com/JonasWard/densing/issues/13))
@@ -25,6 +27,8 @@
 
 ### Changed
 
+- **BREAKING: explicit public API**: `src/index.ts` lists its exports instead of re-exporting every module. Codec internals are no longer exported: `BitWriter`, `BitReader`, `densingField`, `undensingField`, `bitsForRange`, `bitsForMinMaxLength`, `bitsForOptions`, `lengthForUIntMinMaxLength`, `getUIntForConstantBitWidthField`, `getBitWidthForContantBitWidthFields`, `undensingDataForConstantBitWidthField`
+- **`helpers.ts` split** into `encoding/alphabets.ts`, `encoding/radix.ts` and `codec/bits.ts`; a lint rule keeps `codec/` and `encoding/` independent of the schema layer ([#14](https://github.com/JonasWard/densing/issues/14))
 - **BREAKING: builders validate at definition time**: default values must be valid for their field (`int('x', 0, 10, 99)`, `enumeration('e', ['a','b'], 'zzz')`, an invalid `optional` or `enumArray` default); `int` bounds must be safe integers and `fixed` bounds finite; enum options must be strings; fields that share a data object must have distinct names (top-level, in an `object`, and in each union variant together with the discriminator); union variants must all be discriminator options
 - **`enumArray` default**: without an explicit default it is now `minLength` copies of the enum's default (previously `[]`, which was invalid whenever `minLength > 0`)
 - **BREAKING (analysis only)**: the maximum size of a recursive schema is reported as `Infinity` instead of `Number.MAX_SAFE_INTEGER` (and sums of it). `utilizationPercent` is `0` for such schemas. `getDenseFieldBitWidthRange` no longer takes the internal third `visited` parameter
@@ -32,6 +36,7 @@
 
 ### Added
 
+- **`customBase(alphabet)`**: a validated custom alphabet that is never mistaken for a named base (`customBase('binary')` is the six characters `b,i,n,a,r,y`). Plain strings keep working ([#16](https://github.com/JonasWard/densing/issues/16))
 - **`validateSchema(schema)`**, run by `schema()`: pointer targets must exist, be unique among the fields a pointer can refer to, and have a finite value (a recursion needs a union variant, optional or possibly-empty array as a way out; `pointer('p', 'p')` used to loop forever) ([#13](https://github.com/JonasWard/densing/issues/13))
 - **CI**: GitHub Actions workflow running lint, typecheck, tests and build on every push to `main` and every pull request
 - **`typecheck` script**: type-checks sources, tests and the benchmark

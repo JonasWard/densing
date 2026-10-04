@@ -284,11 +284,16 @@ densing(schema, data); // "VA" (example)
 densing(schema, data, 'binary'); // "0101010"
 
 // Custom base (hexadecimal)
-densing(schema, data, '0123456789ABCDEF'); // "54"
+const hex = customBase('0123456789ABCDEF');
+densing(schema, data, hex); // "54"
 
 // Decode with same base
 undensing(schema, encoded, 'binary');
 ```
+
+`customBase` checks the alphabet (at least two characters, no duplicates, no characters outside
+the Basic Multilingual Plane) and can never be confused with a named base. A plain string still works
+as a custom alphabet, but one that equals a base name (such as `'binary'`) selects that base.
 
 ### Recursive Structures
 
@@ -383,6 +388,8 @@ For detailed API documentation, see [API.md](./API.md). The encoding itself is s
 - `undensing(schema, encoded, base?)` - Decode data (throws `DenseDecodeError` for strings the encoder cannot produce, e.g. edited or truncated URLs)
 - `validate(schema, data)` - Validate data
 - `getDefaultData(schema)` - Generate default values
+- `validateSchema(schema)` - Check pointer targets (run by `schema()`)
+- `customBase(alphabet)` - A validated custom alphabet
 
 ### Field Builders
 
