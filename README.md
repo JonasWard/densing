@@ -331,6 +331,33 @@ an optional or an array that may be empty); `schema()` checks both. There is no 
 node costs its discriminator plus its own fields. Because a recursive
 schema has no static maximum size, `analyzeDenseSchemaSize` reports an unbounded maximum for it.
 
+### Domains
+
+A domain is a named range and precision. Define domains once, list which ones an attribute group
+accepts, and let the data choose. The attributes then use the chosen domain's bit width:
+
+```typescript
+import { schema, domain, domains } from 'densing';
+
+const fine = domain('fine', -10, 10, 0.01); // 11 bits
+const count = domain('count', 0, 1000); // integers, 10 bits
+const wide = domain('wide', -1000, 1000, 0.001); // 21 bits
+
+const ShapeSchema = schema(
+  domains('vec2', ['x', 'y'], [fine, count, wide]), // 2 bits pick the domain
+  domains('scale', ['s'], [fine, count]) // a different subset: 1 bit
+);
+
+densing(ShapeSchema, {
+  vec2: { domain: 'fine', x: 1.25, y: -3.5 }, // 2 + 11 + 11 bits
+  scale: { domain: 'count', s: 3 } // 1 + 10 bits
+});
+```
+
+A domain is also a reusable type on its own: `fine.field('offset')` is a field in that domain.
+`domains` is built on `union`, so validation, size analysis, paths and type generation work as usual;
+`{ key: 'unit' }` renames the `domain` key and `{ defaultDomain: 'count' }` sets the default.
+
 ## 📊 Use Cases
 
 ### URL Parameters
@@ -402,6 +429,8 @@ For detailed API documentation, see [API.md](./API.md). The encoding itself is s
 - `enumArray(name, enumField, minLength, maxLength)` - Packed enum array
 - `object(name, ...fields)` - Nested object
 - `union(name, discriminator, variants)` - Discriminated union
+- `domain(name, min, max, precision?, default?)` - A named numeric range and precision
+- `domains(name, attributes, acceptableDomains, options?)` - Attributes sharing a domain chosen in the data
 
 ### Utility Functions
 

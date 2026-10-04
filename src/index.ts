@@ -18,6 +18,8 @@ export type {
   UnionField
 } from './schema-type';
 export { FieldTypes } from './schema-type';
+export { domain, domains } from './schema/domains';
+export type { DomainsOptions, NumericDomain } from './schema/domains';
 
 // Encoding and decoding
 export { densing, undensing } from './densing';

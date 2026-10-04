@@ -37,6 +37,7 @@
 
 ### Added
 
+- **Domains**: `domain(name, min, max, precision?)` defines a named numeric range and precision once; `domains(name, attributes, acceptable)` makes a group of attributes that share one domain, chosen in the data from the acceptable ones (`{ domain: 'fine', x: 1.25, y: -3.5 }`). Built on `union`, so the wire format is unchanged
 - **`customBase(alphabet)`**: a validated custom alphabet that is never mistaken for a named base (`customBase('binary')` is the six characters `b,i,n,a,r,y`). Plain strings keep working ([#16](https://github.com/JonasWard/densing/issues/16))
 - **`validateSchema(schema)`**, run by `schema()`: pointer targets must exist, be unique among the fields a pointer can refer to, and have a finite value (a recursion needs a union variant, optional or possibly-empty array as a way out; `pointer('p', 'p')` used to loop forever) ([#13](https://github.com/JonasWard/densing/issues/13))
 - **CI**: GitHub Actions workflow running lint, typecheck, tests and build on every push to `main` and every pull request
