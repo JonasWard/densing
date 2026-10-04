@@ -1,5 +1,7 @@
 // readme-examples.test.ts - Test all examples from README.md
 import { test, expect } from 'bun:test';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import {
   schema,
   int,
@@ -26,6 +28,14 @@ const testResultComparisonMethod = (encoded: string, data: any, bitsInfo: string
     JSON.stringify(data).length
   } chars, -${Math.round((1 - encoded.length / JSON.stringify(data).length) * 100)}%)`;
 
+// Every size figure produced by the tests below; the last test checks that the README quotes none other
+const producedFigures = new Set<string>();
+const figure = (encoded: string, data: any, bitsInfo: string) => {
+  const result = testResultComparisonMethod(encoded, data, bitsInfo);
+  producedFigures.add(result);
+  return result;
+};
+
 // ===== Quick Start Example =====
 test('Quick Start - DeviceSchema', () => {
   const DeviceSchema = schema(
@@ -47,7 +57,7 @@ test('Quick Start - DeviceSchema', () => {
 
   // Verify it's 24 bits (4 base64 chars)
   const sizeInfo = calculateDenseDataSize(DeviceSchema, data);
-  console.log(`Quick Start: ${testResultComparisonMethod(encoded, data, sizeInfo.totalBits.toString())}`);
+  console.log(`Quick Start: ${figure(encoded, data, sizeInfo.totalBits.toString())}`);
 
   const decoded = undensing(DeviceSchema, encoded);
   expect(decoded).toEqual(data);
@@ -74,7 +84,7 @@ test('Schema Definition - MySchema', () => {
 
   expect(decoded).toEqual(data);
   const sizeInfo = calculateDenseDataSize(MySchema, data);
-  console.log(`Schema Definition: ${testResultComparisonMethod(encoded, data, sizeInfo.totalBits.toString())}`);
+  console.log(`Schema Definition: ${figure(encoded, data, sizeInfo.totalBits.toString())}`);
 });
 
 // ===== Optional Fields Example =====
@@ -90,7 +100,7 @@ test('Optional Fields', () => {
   const sizeWithAge = calculateDenseDataSize(UserSchema, dataWithAge);
   expect(sizeWithAge.totalBits).toBe(14 + 1 + 7); // 14 bits id + 1 presence + 7 bits age
   console.log(
-    `Optional with age: ${testResultComparisonMethod(encodedWithAge, dataWithAge, sizeWithAge.totalBits.toString())}`
+    `Optional with age: ${figure(encodedWithAge, dataWithAge, sizeWithAge.totalBits.toString())}`
   );
 
   // Without age
@@ -102,7 +112,7 @@ test('Optional Fields', () => {
   const sizeWithoutAge = calculateDenseDataSize(UserSchema, dataWithoutAge);
   expect(sizeWithoutAge.totalBits).toBe(14 + 1); // 14 bits id + 1 presence bit
   console.log(
-    `Optional without age: ${testResultComparisonMethod(
+    `Optional without age: ${figure(
       encodedWithoutAge,
       dataWithoutAge,
       sizeWithoutAge.totalBits.toString()
@@ -126,7 +136,7 @@ test('Nested Objects', () => {
   const decoded = undensing(ConfigSchema, encoded);
   expect(decoded).toEqual(data);
   const sizeInfo = calculateDenseDataSize(ConfigSchema, data);
-  console.log(`Nested objects: ${testResultComparisonMethod(encoded, data, sizeInfo.totalBits.toString())}`);
+  console.log(`Nested objects: ${figure(encoded, data, sizeInfo.totalBits.toString())}`);
 });
 
 // ===== Arrays Example =====
@@ -161,10 +171,10 @@ test('Arrays', () => {
   const sizeInfo2 = calculateDenseDataSize(ListSchema, data2);
   const sizeInfo3 = calculateDenseDataSize(ListSchema, data3);
 
-  console.log(`Array [95]: ${testResultComparisonMethod(encoded1, data1, sizeInfo1.totalBits.toString())}`);
-  console.log(`Array [95,87,92,88]: ${testResultComparisonMethod(encoded2, data2, sizeInfo2.totalBits.toString())}`);
+  console.log(`Array [95]: ${figure(encoded1, data1, sizeInfo1.totalBits.toString())}`);
+  console.log(`Array [95,87,92,88]: ${figure(encoded2, data2, sizeInfo2.totalBits.toString())}`);
   console.log(
-    `Array [95,87,92,88,10,12,13,15,16,99]: ${testResultComparisonMethod(
+    `Array [95,87,92,88,10,12,13,15,16,99]: ${figure(
       encoded3,
       data3,
       sizeInfo3.totalBits.toString()
@@ -188,7 +198,7 @@ test('Unions (Polymorphic Types)', () => {
   const startDecoded = undensing(ActionSchema, startEncoded);
   expect(startDecoded).toEqual(startData);
   const startSize = calculateDenseDataSize(ActionSchema, startData);
-  console.log(`Union (start): ${testResultComparisonMethod(startEncoded, startData, startSize.totalBits.toString())}`);
+  console.log(`Union (start): ${figure(startEncoded, startData, startSize.totalBits.toString())}`);
 
   // Stop action
   const stopData = { action: { type: 'stop', force: true } };
@@ -196,7 +206,7 @@ test('Unions (Polymorphic Types)', () => {
   const stopDecoded = undensing(ActionSchema, stopEncoded);
   expect(stopDecoded).toEqual(stopData);
   const stopSize = calculateDenseDataSize(ActionSchema, stopData);
-  console.log(`Union (stop): ${testResultComparisonMethod(stopEncoded, stopData, stopSize.totalBits.toString())}`);
+  console.log(`Union (stop): ${figure(stopEncoded, stopData, stopSize.totalBits.toString())}`);
 
   // Pause action
   const pauseData = { action: { type: 'pause', duration: 1234 } };
@@ -204,7 +214,7 @@ test('Unions (Polymorphic Types)', () => {
   const pauseDecoded = undensing(ActionSchema, pauseEncoded);
   expect(pauseDecoded).toEqual(pauseData);
   const pauseSize = calculateDenseDataSize(ActionSchema, pauseData);
-  console.log(`Union (pause): ${testResultComparisonMethod(pauseEncoded, pauseData, pauseSize.totalBits.toString())}`);
+  console.log(`Union (pause): ${figure(pauseEncoded, pauseData, pauseSize.totalBits.toString())}`);
 
   // Additional union examples from README
   const pause0Data = { action: { type: 'pause', duration: 0 } };
@@ -212,7 +222,7 @@ test('Unions (Polymorphic Types)', () => {
   expect(undensing(ActionSchema, pause0Encoded)).toEqual(pause0Data);
   const pause0Size = calculateDenseDataSize(ActionSchema, pause0Data);
   console.log(
-    `Union (pause 0): ${testResultComparisonMethod(pause0Encoded, pause0Data, pause0Size.totalBits.toString())}`
+    `Union (pause 0): ${figure(pause0Encoded, pause0Data, pause0Size.totalBits.toString())}`
   );
 
   const start60Data = { action: { type: 'start', delay: 60 } };
@@ -220,7 +230,7 @@ test('Unions (Polymorphic Types)', () => {
   expect(undensing(ActionSchema, start60Encoded)).toEqual(start60Data);
   const start60Size = calculateDenseDataSize(ActionSchema, start60Data);
   console.log(
-    `Union (start 60): ${testResultComparisonMethod(start60Encoded, start60Data, start60Size.totalBits.toString())}`
+    `Union (start 60): ${figure(start60Encoded, start60Data, start60Size.totalBits.toString())}`
   );
 
   const stopFalseData = { action: { type: 'stop', force: false } };
@@ -228,7 +238,7 @@ test('Unions (Polymorphic Types)', () => {
   expect(undensing(ActionSchema, stopFalseEncoded)).toEqual(stopFalseData);
   const stopFalseSize = calculateDenseDataSize(ActionSchema, stopFalseData);
   console.log(
-    `Union (stop false): ${testResultComparisonMethod(
+    `Union (stop false): ${figure(
       stopFalseEncoded,
       stopFalseData,
       stopFalseSize.totalBits.toString()
@@ -246,7 +256,7 @@ test('Enum Arrays (Packed)', () => {
   expect(decoded).toEqual(data);
 
   const sizeInfo = calculateDenseDataSize(ColorSchema, data);
-  console.log(`Enum array: ${testResultComparisonMethod(encoded, data, sizeInfo.totalBits.toString())}`);
+  console.log(`Enum array: ${figure(encoded, data, sizeInfo.totalBits.toString())}`);
   // Verify packed encoding
   expect(sizeInfo.totalBits).toBeLessThanOrEqual(4 + 8); // 4 bits length + ~8 bits content
 });
@@ -375,7 +385,7 @@ test('Recursive Structures', () => {
   const decoded = undensing(ExpressionSchema, encoded);
   expect(decoded).toEqual(data);
   const sizeInfo = calculateDenseDataSize(ExpressionSchema, data);
-  console.log(`Recursive structure: ${testResultComparisonMethod(encoded, data, sizeInfo.totalBits.toString())}`);
+  console.log(`Recursive structure: ${figure(encoded, data, sizeInfo.totalBits.toString())}`);
 });
 
 // ===== Use Case: URL Parameters =====
@@ -395,7 +405,7 @@ test('Use Case - URL Parameters', () => {
   const encoded = densing(StateSchema, state);
   const url = `https://app.com/search?state=${encoded}`;
   const sizeInfo = calculateDenseDataSize(StateSchema, state);
-  console.log(`URL state: ${testResultComparisonMethod(encoded, state, sizeInfo.totalBits.toString())}`);
+  console.log(`URL state: ${figure(encoded, state, sizeInfo.totalBits.toString())}`);
   console.log(`URL: ${url}`);
   expect(url.length).toBeLessThan(100); // Should be compact
 
@@ -413,7 +423,7 @@ test('Use Case - IoT Sensor Data', () => {
   const payload = densing(SensorSchema, sensorData);
 
   const sizeInfo = calculateDenseDataSize(SensorSchema, sensorData);
-  console.log(`IoT payload: ${testResultComparisonMethod(payload, sensorData, sizeInfo.totalBits.toString())}`);
+  console.log(`IoT payload: ${figure(payload, sensorData, sizeInfo.totalBits.toString())}`);
 
   const decoded = undensing(SensorSchema, payload);
   expect(decoded.temp).toBeCloseTo(sensorData.temp, 1);
@@ -454,7 +464,7 @@ test('Real-World - Complex Config Schema', () => {
 
   const encoded = densing(ComplexConfigSchema, config);
   const sizeInfo = calculateDenseDataSize(ComplexConfigSchema, config);
-  console.log(`Complex config: ${testResultComparisonMethod(encoded, config, sizeInfo.totalBits.toString())}`);
+  console.log(`Complex config: ${figure(encoded, config, sizeInfo.totalBits.toString())}`);
 
   const decoded = undensing(ComplexConfigSchema, encoded);
   expect(decoded).toEqual(config);
@@ -462,4 +472,12 @@ test('Real-World - Complex Config Schema', () => {
   // Verify it's actually compact - at least 50% smaller than JSON
   const jsonSize = JSON.stringify(config).length;
   expect(encoded.length).toBeLessThan(jsonSize / 2);
+});
+
+// ===== README figures =====
+test('every size figure quoted in README.md is produced by a test above', () => {
+  const readme = readFileSync(join(import.meta.dir, '../../README.md'), 'utf8');
+  const quoted = readme.match(/"[^"]*" \(\d+ bits, \d+ base64 chars vs JSON \d+ chars, -\d+%\)/g) ?? [];
+  expect(quoted.length).toBeGreaterThan(0);
+  for (const q of quoted) expect(producedFigures).toContain(q);
 });

@@ -288,22 +288,17 @@ undensing(schema, encoded, 'binary');
 
 ### Recursive Structures
 
-Define recursive data structures with `createRecursiveUnion`:
+Define recursive data structures with `pointer`, which refers to another field by name:
 
 ```typescript
-import { schema, createRecursiveUnion, int, enumeration } from 'densing';
+import { schema, union, pointer, int, enumeration } from 'densing';
 
 const ExpressionSchema = schema(
-  createRecursiveUnion(
-    'expr',
-    ['number', 'add', 'multiply'],
-    (recurse) => ({
-      number: [int('value', 0, 1000)],
-      add: [recurse('left'), recurse('right')],
-      multiply: [recurse('left'), recurse('right')]
-    }),
-    5 // max depth
-  )
+  union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+    number: [int('value', 0, 1000)],
+    add: [pointer('left', 'expr'), pointer('right', 'expr')],
+    multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
+  })
 );
 
 // Encode: (5 + 3) * 2
@@ -319,8 +314,11 @@ const data = {
   }
 };
 
-densing(ExpressionSchema, data); // "kAUAMAI" (190 bits, 7 base64 chars vs JSON 157 chars, -96%)
+densing(ExpressionSchema, data); // "kAUAMAI" (40 bits, 7 base64 chars vs JSON 157 chars, -96%)
 ```
+
+There is no depth limit: each node costs its discriminator plus its own fields. Because a recursive
+schema has no static maximum size, `analyzeDenseSchemaSize` reports an unbounded maximum for it.
 
 ## 📊 Use Cases
 
