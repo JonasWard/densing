@@ -1,6 +1,11 @@
 // api.ts - High-level API methods for schema introspection and size calculation
 import { DenseSchema, DenseField, assertNeverDenseField } from './schema-type';
-import { getBitWidthForContantBitWidthFields, bitsForMinMaxLength, bitsForOptions } from './densing';
+import {
+  getBitWidthForContantBitWidthFields,
+  bitsForEnumArrayContent,
+  bitsForMinMaxLength,
+  bitsForOptions
+} from './densing';
 import { resolvePointerOrThrow } from './schema/resolve';
 
 /** `count * bits`, where a count of 0 contributes nothing even when `bits` is unbounded */
@@ -57,8 +62,8 @@ const fieldBitWidthRange = (
       // Enum array: length bits + packed enum content
       const lengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
       const base = field.enum.options.length;
-      const minContentBits = field.minLength === 0 ? 0 : Math.ceil(field.minLength * Math.log2(base));
-      const maxContentBits = field.maxLength === 0 ? 0 : Math.ceil(field.maxLength * Math.log2(base));
+      const minContentBits = bitsForEnumArrayContent(field.minLength, base);
+      const maxContentBits = bitsForEnumArrayContent(field.maxLength, base);
       return {
         min: lengthBits + minContentBits,
         max: lengthBits + maxContentBits
@@ -133,7 +138,7 @@ export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schem
       if (!Array.isArray(value)) return 0;
       const lengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
       const base = field.enum.options.length;
-      const contentBits = value.length === 0 ? 0 : Math.ceil(value.length * Math.log2(base));
+      const contentBits = bitsForEnumArrayContent(value.length, base);
       return lengthBits + contentBits;
     }
 

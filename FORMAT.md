@@ -28,6 +28,11 @@ length of `r - 1` (i.e. `ceil(log2(r))`).
 
 `int` and `fixed` fields are at most 53 bits wide, so every stored value is an exact JavaScript number.
 
+**Every width in this document is defined with integer arithmetic.** The `log2` forms are given only
+as a description; an implementation must compute bit lengths and powers exactly and must not use
+floating-point logarithms, which are not required to be correctly rounded and can be off by one bit
+at boundaries (e.g. `ceil(log2(2^49 + 1))` evaluates to 49 in JavaScript).
+
 ## 2. Field encodings
 
 | Field | Encoding |
