@@ -26,7 +26,8 @@ test('53-bit fields are the widest', () => {
   const S = schema(int('x', 0, 2 ** 53 - 1));
   const x = Number.MAX_SAFE_INTEGER;
   expect(undensing(S, densing(S, { x }))).toEqual({ x });
-  expect(() => int('x', 0, 2 ** 53)).toThrow('int "x": range [0, 9007199254740992] needs more than 53 bits');
+  expect(() => int('x', -(2 ** 52), 2 ** 52)).toThrow('int "x": range [-4503599627370496, 4503599627370496] needs more than 53 bits');
+  expect(() => int('x', 0, 2 ** 53)).toThrow('int "x": min and max must be safe integers');
   expect(() => fixed('f', 0, 1e6, 1e-10)).toThrow('needs more than 53 bits');
 });
 
