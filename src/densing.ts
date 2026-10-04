@@ -2,8 +2,8 @@
 import { BitWriter, BitReader, BaseType } from './helpers';
 import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
 import { resolvePointerOrThrow } from './schema/resolve';
+import { DenseDecodeError, DenseEncodeError } from './errors';
 import {
-  DenseEncodeError,
   constantFieldValueError,
   fixedFromUInt,
   fixedMaxStep,
@@ -185,11 +185,14 @@ export const densingField = (
  * @param baseString - The dense string to undense
  * @param base - The base as string of characters, where every symbol is interpreted as a specific value
  * @returns The undense data
+ * @throws DenseDecodeError when the string is not a payload `densing` could have produced for this
+ * schema (wrong characters, values outside a field's range, too few or too many characters, ...)
  */
 export const undensing = (denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any => {
   const r = BitReader.getFromBase(baseString, base);
   const obj: any = {};
-  denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f, denseSchema)));
+  denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f, denseSchema, f.name)));
+  r.assertCanonicalEnd();
   return obj;
 };
 
@@ -208,70 +211,121 @@ export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthFie
   }
 };
 
+/** Largest unsigned integer the encoder writes for a constant-width field */
+const maxUIntForConstantBitWidthField = (field: ConstantBitWidthField): number => {
+  switch (field.type) {
+    case 'bool':
+      return 1;
+    case 'int':
+      return field.max - field.min;
+    case 'enum':
+      return field.options.length - 1;
+    case 'fixed':
+      return fixedMaxStep(field.min, field.max, field.precision);
+    default:
+      return assertNeverDenseField(field);
+  }
+};
+
+/** Read from `r`, attaching `path` to an end-of-input error */
+const readAt = <T>(path: string, read: () => T): T => {
+  try {
+    return read();
+  } catch (e) {
+    if (e instanceof DenseDecodeError && !e.path) throw new DenseDecodeError(path, e.message);
+    throw e;
+  }
+};
+
+const readLength = (r: BitReader, minLength: number, maxLength: number, path: string): number => {
+  const length = lengthForUIntMinMaxLength(
+    readAt(path, () => r.readUInt(bitsForMinMaxLength(minLength, maxLength))),
+    minLength
+  );
+  const error = lengthError(length, minLength, maxLength);
+  if (error) throw new DenseDecodeError(path, error);
+  return length;
+};
+
 /**
  * Internal Helper method to undense a single field of the schema from the given bit reader
  * @param r - The bit reader to read the dense data from
  * @param denseField - The field used as the template to undense the value with
  * @param schema - The root schema (for resolving pointers)
- * @returns The undense value, should match the type of the field! This method doesn't do any validation of data!
+ * @param path - Path of the value, used in error messages
+ * @returns The undense value
+ * @throws DenseDecodeError when the bits cannot have been written by the encoder for this field
  */
-export const undensingField = (r: BitReader, denseField: DenseField, schema?: DenseSchema): any => {
+export const undensingField = (
+  r: BitReader,
+  denseField: DenseField,
+  schema?: DenseSchema,
+  path: string = denseField.name
+): any => {
   switch (denseField.type) {
     case 'bool':
     case 'int':
     case 'enum':
-    case 'fixed':
-      return undensingDataForConstantBitWidthField(
-        denseField,
-        r.readUInt(getBitWidthForContantBitWidthFields(denseField))
-      );
+    case 'fixed': {
+      const uInt = readAt(path, () => r.readUInt(getBitWidthForContantBitWidthFields(denseField)));
+      const max = maxUIntForConstantBitWidthField(denseField);
+      if (uInt > max)
+        throw new DenseDecodeError(path, `stored value ${uInt} exceeds the field's maximum ${max}`);
+      return undensingDataForConstantBitWidthField(denseField, uInt);
+    }
 
     case 'array': {
-      const length = lengthForUIntMinMaxLength(
-        r.readUInt(bitsForMinMaxLength(denseField.minLength, denseField.maxLength)),
-        denseField.minLength
-      );
-      return Array.from({ length }, () => undensingField(r, denseField.items, schema));
+      const length = readLength(r, denseField.minLength, denseField.maxLength, path);
+      return Array.from({ length }, (_, i) => undensingField(r, denseField.items, schema, `${path}[${i}]`));
     }
 
     case 'union': {
-      const idx = r.readUInt(bitsForOptions(denseField.discriminator.options));
-      const key = denseField.discriminator.options[idx];
-      const obj: any = { [denseField.discriminator.name]: key };
-      denseField.variants[key].forEach((f) => (obj[f.name] = undensingField(r, f, schema)));
+      const { discriminator } = denseField;
+      const discPath = `${path}.${discriminator.name}`;
+      const idx = readAt(discPath, () => r.readUInt(bitsForOptions(discriminator.options)));
+      if (idx >= discriminator.options.length)
+        throw new DenseDecodeError(discPath, `discriminator index ${idx} exceeds the ${discriminator.options.length} options`);
+      const key = discriminator.options[idx];
+      const obj: any = { [discriminator.name]: key };
+      denseField.variants[key].forEach((f) => (obj[f.name] = undensingField(r, f, schema, `${path}.${f.name}`)));
       return obj;
     }
 
-    case 'enum_array':
-      const base = BigInt(sizeForOptions(denseField.enum.options));
-      const arrayLengthBits = bitsForMinMaxLength(denseField.minLength, denseField.maxLength);
-      const length = lengthForUIntMinMaxLength(r.readUInt(arrayLengthBits), denseField.minLength);
-      const contentBits = bitsForEnumArrayContent(length, sizeForOptions(denseField.enum.options));
+    case 'enum_array': {
+      const { options } = denseField.enum;
+      const base = BigInt(sizeForOptions(options));
+      const length = readLength(r, denseField.minLength, denseField.maxLength, path);
+      const contentBits = bitsForEnumArrayContent(length, sizeForOptions(options));
 
-      let bigIntValue = r.readUBigInt(contentBits);
+      let bigIntValue = readAt(path, () => r.readUBigInt(contentBits));
+      if (bigIntValue >= base ** BigInt(length))
+        throw new DenseDecodeError(path, `content does not encode ${length} values of ${options.length} options`);
+
       const result: string[] = [];
-
       for (let i = 0; i < length; i++) {
         // always use BigInt modulo and division
         const idx = Number(bigIntValue % base); // convert index to number for enum lookup
-        result.unshift(denseField.enum.options[idx]); // unshift to reverse the order (most significant digit first)
+        result.unshift(options[idx]); // unshift to reverse the order (most significant digit first)
         bigIntValue = bigIntValue / base;
       }
 
       return result;
+    }
 
     case 'optional':
-      return Boolean(r.readUInt(1))
-        ? undensingField(r, denseField.field, schema)
+      return readAt(path, () => r.readUInt(1))
+        ? undensingField(r, denseField.field, schema, path)
         : denseField.defaultValue !== undefined
         ? denseField.defaultValue
         : null;
 
     case 'object':
-      return Object.fromEntries(denseField.fields.map((f) => [f.name, undensingField(r, f, schema)]));
+      return Object.fromEntries(
+        denseField.fields.map((f) => [f.name, undensingField(r, f, schema, `${path}.${f.name}`)])
+      );
 
     case 'pointer':
-      return undensingField(r, resolvePointerOrThrow(denseField, schema), schema);
+      return undensingField(r, resolvePointerOrThrow(denseField, schema), schema, path);
 
     default:
       return assertNeverDenseField(denseField);

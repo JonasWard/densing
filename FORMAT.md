@@ -59,6 +59,19 @@ bits (`ceil(L * log2(n))`). An empty array has no content bits.
 - An absent `optional` decodes to the field's `defaultValue` when one is set, otherwise `null`.
 - A `pointer` resolves to the first field named `targetName` in a depth-first walk of the schema.
 
+### Canonical payloads
+
+Every value has exactly one encoding, and a decoder rejects (`DenseDecodeError`) any string the
+encoder cannot produce:
+
+- a stored value above the field's maximum (`int` / `fixed` above `max`, an `enum` or union
+  discriminator index past the options, an array length above `maxLength`, `enum_array` content of
+  `n^L` or more)
+- too few characters (the data runs past the end), or more characters than the bits read need
+- non-zero padding bits
+- characters outside the alphabet, or (for non-power-of-two alphabets) digits whose value does not
+  fit in the bits those characters hold
+
 ## 3. Text
 
 Given an alphabet of `b` characters (`alphabet[d]` is digit `d`) and a bit stream `S` of `N` bits:
