@@ -40,8 +40,9 @@
     "postbuild": "rimraf tsconfig.types.tsbuildinfo",
     "benchmark": "bun run benchmark.ts",
     "test": "bun test",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "typecheck": "tsc -p tsconfig.check.json",
     "prepublishOnly": "bun test && bun run build"
   },
   "devDependencies": {

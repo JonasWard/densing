@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Lint coverage**: `bun run lint` now lints all of `src/`; the unquoted `src/**/*.ts` glob skipped the top-level `densing.ts`, `api.ts` and `helpers.ts`
+
+### Added
+
+- **CI**: GitHub Actions workflow running lint, typecheck, tests and build on every push to `main` and every pull request
+- **`typecheck` script**: type-checks sources, tests and the benchmark
+
 ## [0.2.3] - 2026-02-12
 
 ### Removed
