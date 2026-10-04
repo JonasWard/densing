@@ -1,5 +1,5 @@
 // api.ts - High-level API methods for schema introspection and size calculation
-import { DenseSchema, DenseField, ObjectField, assertNeverDenseField } from './schema-type';
+import { DenseSchema, DenseField, assertNeverDenseField } from './schema-type';
 import { getBitWidthForContantBitWidthFields, bitsForMinMaxLength, bitsForOptions } from './densing';
 import { resolvePointerOrThrow } from './schema/resolve';
 
@@ -262,57 +262,104 @@ export const calculateDenseDataSize = (schema: DenseSchema, data: any): DataSize
   };
 };
 
+/*
+ * Path grammar, shared by `getFieldByPath`, `walkDenseSchema` and `getAllDenseSchemaPaths`:
+ *
+ *   path    = segment ("." segment)*
+ *   segment = field name, followed by "[]" when the field is an array and the path continues
+ *             into its items
+ *
+ * Every nested field adds its own name as a segment:
+ * - object      `settings.enabled`           (a field of the object)
+ * - array       `users[].user`               (the items field; `[]` marks the step into the items)
+ * - optional    `maybe.inner`                (the wrapped field)
+ * - union       `action.type`, `action.delay` (the discriminator, or a field of any variant; when
+ *                                            several variants declare the same name, the first
+ *                                            variant in declaration order wins)
+ * - pointer     `expr.left.value`            (`getFieldByPath` continues in the pointer's target;
+ *                                            the walk does not, since that may recurse forever)
+ */
+
+/** The fields one level below `field`, as addressed by a path segment */
+const childFields = (field: DenseField, schema: DenseSchema, pointerDepth: number): DenseField[] => {
+  switch (field.type) {
+    case 'object':
+      return field.fields;
+    case 'optional':
+      return [field.field];
+    case 'union':
+      return [field.discriminator, ...Object.values(field.variants).flat()];
+    case 'pointer':
+      // a pointer to a pointer to ... is bounded by the number of fields in the schema
+      return pointerDepth > 64 ? [] : childFields(resolvePointerOrThrow(field, schema), schema, pointerDepth + 1);
+    case 'array':
+    case 'bool':
+    case 'int':
+    case 'fixed':
+    case 'enum':
+    case 'enum_array':
+      return [];
+    default:
+      return assertNeverDenseField(field);
+  }
+};
+
 /**
- * Get a field definition by path
+ * Get a field definition by path (see the path grammar above)
  * @example getFieldByPath(schema, 'network.port') -> IntField
+ * @example getFieldByPath(schema, 'users[].user.id') -> IntField
+ * @returns the field, or `null` when the path does not exist
  */
 export const getFieldByPath = (schema: DenseSchema, path: string): DenseField | null => {
-  const parts = path.split('.');
+  let candidates: readonly DenseField[] = schema.fields;
   let current: DenseField | null = null;
 
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    const fields: DenseField[] | undefined =
-      i === 0 ? schema.fields : current ? (current as ObjectField).fields : undefined;
-    if (!fields) return null;
+  for (const segment of path.split('.')) {
+    const intoItems = segment.endsWith('[]');
+    const name = intoItems ? segment.slice(0, -2) : segment;
 
-    current = fields.find((f: DenseField) => f.name === part) || null;
+    // legacy form: `list.child` for `list[].item.child`, when the items are an object
+    if (!candidates.length && current?.type === 'array' && current.items.type === 'object')
+      candidates = current.items.fields;
+
+    current = candidates.find((f) => f.name === name) ?? null;
     if (!current) return null;
 
-    // Handle array items by wrapping in the items field
-    if (current.type === 'array' && i < parts.length - 1) {
-      current = current.items;
+    if (intoItems) {
+      if (current.type !== 'array') return null;
+      candidates = [current.items];
+    } else {
+      candidates = childFields(current, schema, 0);
     }
   }
 
   return current;
 };
 
-const nestedTypes = ['object', 'array', 'optional', 'union'] as const;
-
 const walkField = (
   field: DenseField,
   callback: (field: DenseField, path: string, parent?: DenseField) => void,
-  prefix: string = ''
+  prefix: string,
+  parent?: DenseField
 ) => {
   const fieldPath = prefix ? `${prefix}.${field.name}` : field.name;
-  callback(field, fieldPath);
+  callback(field, fieldPath, parent);
   switch (field.type) {
     case 'object':
-      field.fields.forEach((f) => walkField(f, callback, fieldPath));
+      field.fields.forEach((f) => walkField(f, callback, fieldPath, field));
       break;
     case 'array':
-      walkField(field.items, callback, `${fieldPath}[]`);
+      walkField(field.items, callback, `${fieldPath}[]`, field);
       break;
     case 'optional':
-      walkField(field.field, callback, fieldPath);
+      walkField(field.field, callback, fieldPath, field);
       break;
     case 'union':
       // Walk the discriminator field
-      walkField(field.discriminator, callback, fieldPath);
+      walkField(field.discriminator, callback, fieldPath, field);
       // Walk all variant fields
       Object.values(field.variants).forEach((variantFields) =>
-        variantFields.forEach((f) => walkField(f, callback, fieldPath))
+        variantFields.forEach((f) => walkField(f, callback, fieldPath, field))
       );
       break;
     case 'bool':
@@ -328,7 +375,8 @@ const walkField = (
 };
 
 /**
- * Walk all fields in schema (including nested)
+ * Walk all fields in schema (including nested), in the path grammar above; `parent` is the
+ * enclosing field (`undefined` at the top level). Pointers are not followed.
  * @example walkDenseSchema(schema, (field, path) => console.log(path, field))
  */
 export const walkDenseSchema = (
