@@ -1,5 +1,6 @@
 // codec.ts
-import { BitWriter, BitReader, BaseType } from './helpers';
+import { BitWriter, BitReader } from './codec/bits';
+import { BaseSpec } from './encoding/alphabets';
 import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
 import { resolvePointerOrThrow } from './schema/resolve';
 import { DenseDecodeError, DenseEncodeError } from './errors';
@@ -41,7 +42,7 @@ const sizeForOptions = (options: readonly string[]): number => options.length;
  * @returns The dense string in the given base
  * @throws DenseEncodeError when the data does not match the schema (the same rules `validate()` checks)
  */
-export const densing = (denseSchema: DenseSchema, data: any, base: BaseType | string = 'base64url'): string => {
+export const densing = (denseSchema: DenseSchema, data: any, base: BaseSpec = 'base64url'): string => {
   if (typeof data !== 'object' || data === null) throw new DenseEncodeError('', 'expected object');
   const w = new BitWriter();
   denseSchema.fields.forEach((f) => densingField(w, f, data[f.name], denseSchema, f.name));
@@ -188,7 +189,7 @@ export const densingField = (
  * @throws DenseDecodeError when the string is not a payload `densing` could have produced for this
  * schema (wrong characters, values outside a field's range, too few or too many characters, ...)
  */
-export const undensing = (denseSchema: DenseSchema, baseString: string, base: BaseType | string = 'base64url'): any => {
+export const undensing = (denseSchema: DenseSchema, baseString: string, base: BaseSpec = 'base64url'): any => {
   const r = BitReader.getFromBase(baseString, base);
   const obj: any = {};
   denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f, denseSchema, f.name)));

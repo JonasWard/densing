@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { densing, undensing } from '../densing';
-import { BitWriter } from '../helpers';
+import { BitWriter } from '../codec/bits';
 import { array, bool, enumArray, enumeration, fixed, int, object, optional, schema, union } from '../schema/builder';
 import { validate } from '../schema/validation';
 import { DenseEncodeError } from '../errors';
