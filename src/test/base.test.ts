@@ -1,7 +1,12 @@
 import { expect, test } from 'bun:test';
 import { densing, undensing } from '../densing';
 import { schema, bool, int, fixed, enumeration, union, array, enumArray } from '../schema/builder';
-import { getBase64FromBigInt, getBigIntFromBase64 } from '../helpers';
+import {
+  getBase64FromBigInt,
+  getBigIntFromBase64,
+  getBigIntFrombaseQRCode45UrlSafe,
+  getbaseQRCode45UrlSafeFromBigInt
+} from '../helpers';
 
 test('base64 back and forward bigint conversion', () => {
   const BigIntData = 12345678901234567890133254348586883996588395981234n ** 100n;
@@ -99,4 +104,13 @@ test('complex schema testing', () => {
   expect(ArrayDecoded).toEqual(ArrayData);
   expect(EnumArrayDecoded).toEqual(EnumArrayData);
   expect(UnionDecoded).toEqual(UnionData);
+});
+test('exported base conversion pairs round trip (no bitWidth)', () => {
+  const values = [0n, 1n, 37n, 38n, 12345n, 2n ** 64n - 1n, 98765432109876543210n];
+  for (const v of values) {
+    expect(getBigIntFromBase64(getBase64FromBigInt(v))).toBe(v);
+    expect(getBigIntFrombaseQRCode45UrlSafe(getbaseQRCode45UrlSafeFromBigInt(v))).toBe(v);
+  }
+  // regression: the decoder used its own input as the alphabet ("3MTY" -> 27n)
+  expect(getBigIntFrombaseQRCode45UrlSafe(getbaseQRCode45UrlSafeFromBigInt(12345n))).toBe(12345n);
 });

@@ -67,8 +67,8 @@ export const getBase64FromBigInt = (bigInt: bigint, bitWidth?: number): string =
 
 export const getbaseQRCode45UrlSafeFromBigInt = (bigInt: bigint, bitWidth?: number): string =>
   getBaseStringFromBigInt(bigInt, baseQRCode45UrlSafe, bitWidth);
-export const getBigIntFrombaseQRCode45UrlSafe = (baseQRCode45UrlSafe: string): bigint =>
-  getBigIntFromBaseString(baseQRCode45UrlSafe, baseQRCode45UrlSafe);
+export const getBigIntFrombaseQRCode45UrlSafe = (encoded: string): bigint =>
+  getBigIntFromBaseString(encoded, baseQRCode45UrlSafe);
 
 /**
  * Helper class for writing the uInt numeric value of a field in the schema into the bigint representing the densed data

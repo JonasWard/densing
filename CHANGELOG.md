@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **`getBigIntFrombaseQRCode45UrlSafe`** decoded using its own input as the alphabet (the parameter shadowed the alphabet constant); `@typescript-eslint/no-shadow` is now enforced ([#5](https://github.com/JonasWard/densing/issues/5))
 - **Lint coverage**: `bun run lint` now lints all of `src/`; the unquoted `src/**/*.ts` glob skipped the top-level `densing.ts`, `api.ts` and `helpers.ts`
 
 ### Added
