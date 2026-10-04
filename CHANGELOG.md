@@ -10,6 +10,8 @@
 
 - **CI**: GitHub Actions workflow running lint, typecheck, tests and build on every push to `main` and every pull request
 - **`typecheck` script**: type-checks sources, tests and the benchmark
+- **`FORMAT.md`**: specification of the wire format (bit order, field encodings, padding, alphabets)
+- **Golden-vector tests** (`format.test.ts`) pinning the current encoding in four alphabets
 
 ## [0.2.3] - 2026-02-12
 
