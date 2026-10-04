@@ -1,5 +1,6 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 import { constantFieldValueError, lengthError } from '../values';
+import { resolveDenseFieldByName } from './resolve';
 
 export interface ValidationError {
   path: string;
@@ -30,7 +31,7 @@ export const validate = (schema: DenseSchema, data: any): ValidationResult => {
   const errors: ValidationError[] = [];
 
   for (const field of schema.fields) {
-    validateField(field, data[field.name], field.name, errors);
+    validateField(field, data[field.name], field.name, errors, schema);
   }
 
   return {
@@ -39,14 +40,24 @@ export const validate = (schema: DenseSchema, data: any): ValidationResult => {
   };
 };
 
-export const validateField = (field: DenseField, value: any, path: string, errors: ValidationError[]): any => {
+/**
+ * Validate one value against a field, appending to `errors`
+ * @param schema - the root schema; needed to follow `pointer` fields (without it they are not checked)
+ */
+export const validateField = (
+  field: DenseField,
+  value: any,
+  path: string,
+  errors: ValidationError[],
+  schema?: DenseSchema
+): void => {
   // For optional fields, undefined/null is valid
   if (field.type === 'optional') {
     if (value === undefined || value === null) {
       return; // Optional fields can be undefined
     }
     // If present, validate the inner field
-    validateField(field.field, value, path, errors);
+    validateField(field.field, value, path, errors, schema);
     return;
   }
 
@@ -76,7 +87,7 @@ export const validateField = (field: DenseField, value: any, path: string, error
 
       pushLengthError(value.length, field.minLength, field.maxLength, path, errors);
 
-      value.forEach((item, i) => validateField(field.items, item, `${path}[${i}]`, errors));
+      value.forEach((item, i) => validateField(field.items, item, `${path}[${i}]`, errors, schema));
       return;
 
     case 'union': {
@@ -107,7 +118,7 @@ export const validateField = (field: DenseField, value: any, path: string, error
       }
 
       for (const f of variantFields) {
-        validateField(f, value[f.name], `${path}.${f.name}`, errors);
+        validateField(f, value[f.name], `${path}.${f.name}`, errors, schema);
       }
 
       return;
@@ -135,16 +146,19 @@ export const validateField = (field: DenseField, value: any, path: string, error
       }
 
       for (const f of field.fields) {
-        validateField(f, value[f.name], `${path}.${f.name}`, errors);
+        validateField(f, value[f.name], `${path}.${f.name}`, errors, schema);
       }
       return;
     }
 
     case 'pointer': {
-      // For pointers, we need the schema context to resolve the target
-      // This would require passing schema through validateField
-      // For now, we just validate that the value exists
-      // The actual type validation will happen during encoding
+      if (!schema) return; // cannot resolve without the root schema
+      const target = resolveDenseFieldByName(schema, field.targetName);
+      if (!target) {
+        errors.push({ path, message: `pointer target "${field.targetName}" does not exist` });
+        return;
+      }
+      validateField(target, value, path, errors, schema);
       return;
     }
 

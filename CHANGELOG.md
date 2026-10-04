@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **`validate` follows pointers**: values behind a `pointer` were never checked ([#13](https://github.com/JonasWard/densing/issues/13))
+- **`getDefaultData` for recursive schemas** returns finite, encodable data: the default discriminator is kept, and recursion below it ends at the smallest variant. Pointers previously defaulted to `null`, which `densing` could not encode ([#13](https://github.com/JonasWard/densing/issues/13))
 - **BREAKING: `undensing` rejects malformed input** with a `DenseDecodeError` (with `path`) instead of returning wrong data or crashing: characters outside the alphabet (previously read as digit −1), stored values above a field's maximum (an `int` above `max`, an enum index past the options, which decoded to `undefined`), union discriminator indices past the options (previously a raw `TypeError`), array lengths above `maxLength`, invalid `enum_array` content, too few characters, trailing characters, non-zero padding bits and over-capacity base38 strings. Every payload now has exactly one valid spelling
 - **Fields wider than 32 bits** (e.g. millisecond timestamps, longitude at `1e-8`) encoded but could not be decoded (`Cannot read more than 32 bits`). Fields up to 53 bits now round-trip; `int` and `fixed` throw at definition time when they need more
 - **Range widths** are computed as integer bit lengths: `ceil(log2(2^49 + 1))` evaluated to 49, one bit too few, for ranges just above large powers of two
@@ -28,6 +30,7 @@
 
 ### Added
 
+- **`validateSchema(schema)`**, run by `schema()`: pointer targets must exist, be unique among the fields a pointer can refer to, and have a finite value (a recursion needs a union variant, optional or possibly-empty array as a way out; `pointer('p', 'p')` used to loop forever) ([#13](https://github.com/JonasWard/densing/issues/13))
 - **CI**: GitHub Actions workflow running lint, typecheck, tests and build on every push to `main` and every pull request
 - **`typecheck` script**: type-checks sources, tests and the benchmark
 - **`FORMAT.md`**: specification of the wire format (bit order, field encodings, padding, alphabets)

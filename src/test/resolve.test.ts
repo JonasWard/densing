@@ -21,5 +21,5 @@ test('first match in depth-first declaration order wins (no lexical scoping, see
 test('resolvePointerOrThrow reports missing schema and unknown targets', () => {
   const p = pointer('p', 'nope');
   expect(() => resolvePointerOrThrow(p, undefined)).toThrow('Pointer field "p" requires schema context');
-  expect(() => resolvePointerOrThrow(p, schema(p))).toThrow('Pointer field "p" references unknown field "nope"');
+  expect(() => resolvePointerOrThrow(p, { fields: [p] })).toThrow('Pointer field "p" references unknown field "nope"');
 });

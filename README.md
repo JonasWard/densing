@@ -321,7 +321,9 @@ const data = {
 densing(ExpressionSchema, data); // "kAUAMAI" (40 bits, 7 base64 chars vs JSON 157 chars, -96%)
 ```
 
-There is no depth limit: each node costs its discriminator plus its own fields. Because a recursive
+Pointer targets must be unique within the schema and every recursion needs a way out (a union variant,
+an optional or an array that may be empty); `schema()` checks both. There is no depth limit: each
+node costs its discriminator plus its own fields. Because a recursive
 schema has no static maximum size, `analyzeDenseSchemaSize` reports an unbounded maximum for it.
 
 ## 📊 Use Cases
