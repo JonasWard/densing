@@ -57,7 +57,9 @@ bits (`ceil(L * log2(n))`). An empty array has no content bits.
 ### Decoding notes
 
 - An absent `optional` decodes to the field's `defaultValue` when one is set, otherwise `null`.
-- A `pointer` resolves to the first field named `targetName` in a depth-first walk of the schema.
+- A `pointer` resolves to the field named `targetName`. Pointer targets must be unique among all object
+  fields, union variant fields, array items and optional inner fields (`validateSchema`), so which
+  field a pointer refers to never depends on declaration order.
 
 ### Canonical payloads
 

@@ -48,10 +48,10 @@ const findFieldByName = (fields: DenseField[], targetName: string, visited: Set<
 /**
  * Resolve the field a pointer's `targetName` refers to.
  *
- * Scoping: this is the first field with that name in a depth-first walk of the whole schema, in
- * declaration order. It is not lexically scoped: a pointer can bind to a field in a sibling union
- * variant or an unrelated object, and when two fields share the name the first one wins.
- * See https://github.com/JonasWard/densing/issues/13.
+ * Scoping: the search covers the whole schema (it is not lexically scoped). `validateSchema`, which
+ * `schema()` runs, requires every pointer target name to be unique, so for a valid schema there is
+ * exactly one match; for a schema that skipped validation, the first match in a depth-first walk in
+ * declaration order wins.
  */
 export const resolveDenseFieldByName = (schema: DenseSchema, targetName: string): DenseField | undefined => {
   let targets = resolvedTargets.get(schema);

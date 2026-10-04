@@ -13,6 +13,7 @@ import {
 } from '../schema-type';
 import { MAX_FIELD_BITS, constantFieldValueError, fixedMaxStep } from '../values';
 import { validateField, ValidationError } from './validation';
+import { assertValidSchema } from './validate-schema';
 
 /** Throw when a field's default value would not pass `validate` / `densing` */
 const assertValidDefault = (type: string, field: DenseField, defaultValue: unknown) => {
@@ -219,7 +220,13 @@ export const pointer = (name: string, targetName: string): PointerField => {
  * Schema Root Helper
  * ========================= */
 
+/**
+ * The root of a schema. Also checks the schema as a whole (`validateSchema`): pointer targets must
+ * exist, be unambiguous and have a finite value.
+ */
 export const schema = <const T extends DenseField[]>(...fields: T): { readonly fields: T } => {
   assertUniqueNames('schema', fields);
-  return { fields } as const;
+  const result = { fields } as const;
+  assertValidSchema(result);
+  return result;
 };

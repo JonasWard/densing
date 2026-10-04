@@ -195,6 +195,27 @@ console.log(paths);
 
 ---
 
+## Schema Validation API
+
+### `validateSchema(schema: DenseSchema): ValidationResult`
+
+Checks the rules that depend on the whole schema. `schema()` runs it and throws on the first error;
+call it yourself for schemas built by hand or loaded from JSON.
+
+- every `pointer` target exists
+- every `pointer` target name is unique among the fields a pointer can refer to (object fields,
+  union variant fields, array items, optional inner fields), so the target never depends on
+  declaration order
+- every `pointer` target has a finite value: a recursive cycle must pass through a union variant, an
+  optional or an array that may be empty
+
+```typescript
+validateSchema({ fields: [object('node', int('v', 0, 3), pointer('next', 'node'))] });
+// { valid: false, errors: [{ path: 'node.next', message: 'pointer target "node" has no finite value: ...' }] }
+```
+
+---
+
 ## Type Definitions
 
 ### `SchemaSizeInfo`
