@@ -1,6 +1,6 @@
 // codec.ts
 import { BitWriter, BitReader, BaseType } from './helpers';
-import { DenseSchema, DenseField, ConstantBitWidthField } from './schema-type';
+import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
 
 // Helper to resolve a field by name in a schema (for pointer support)
 const resolveFieldByName = (schema: DenseSchema, targetName: string): DenseField | undefined => {
@@ -90,6 +90,8 @@ export const getUIntForConstantBitWidthField = (field: ConstantBitWidthField, va
       return field.options.indexOf(value);
     case 'fixed':
       return uIntForFixed(value, field.min, field.precision);
+    default:
+      return assertNeverDenseField(field);
   }
 };
 
@@ -103,6 +105,8 @@ export const getBitWidthForContantBitWidthFields = (field: ConstantBitWidthField
       return bitsForOptions(field.options);
     case 'fixed':
       return bitsForFixed(field.min, field.max, field.precision);
+    default:
+      return assertNeverDenseField(field);
   }
 };
 
@@ -179,6 +183,9 @@ export const densingField = (w: BitWriter, field: DenseField, value: any, schema
       densingField(w, targetField, value, schema);
       break;
     }
+
+    default:
+      assertNeverDenseField(field);
   }
 };
 
@@ -206,6 +213,8 @@ export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthFie
       return field.options[unsignedInt];
     case 'fixed':
       return fixedFromUint(unsignedInt, field.min, field.precision);
+    default:
+      return assertNeverDenseField(field);
   }
 };
 
@@ -278,5 +287,8 @@ export const undensingField = (r: BitReader, denseField: DenseField, schema?: De
         throw new Error(`Pointer field "${denseField.name}" references unknown field "${denseField.targetName}"`);
       return undensingField(r, targetField, schema);
     }
+
+    default:
+      return assertNeverDenseField(denseField);
   }
 };

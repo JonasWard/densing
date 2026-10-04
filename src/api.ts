@@ -1,5 +1,5 @@
 // api.ts - High-level API methods for schema introspection and size calculation
-import { DenseSchema, DenseField, ObjectField } from './schema-type';
+import { DenseSchema, DenseField, ObjectField, assertNeverDenseField } from './schema-type';
 import { getBitWidthForContantBitWidthFields, bitsForMinMaxLength, bitsForOptions } from './densing';
 
 /**
@@ -143,7 +143,7 @@ export const getDenseFieldBitWidthRange = (
     }
 
     default:
-      return { min: 0, max: 0 };
+      return assertNeverDenseField(field);
   }
 };
 
@@ -207,7 +207,7 @@ export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schem
     }
 
     default:
-      return 0;
+      return assertNeverDenseField(field);
   }
 };
 
@@ -362,6 +362,15 @@ const walkField = (
         variantFields.forEach((f) => walkField(f, callback, fieldPath))
       );
       break;
+    case 'bool':
+    case 'int':
+    case 'fixed':
+    case 'enum':
+    case 'enum_array':
+    case 'pointer':
+      break;
+    default:
+      assertNeverDenseField(field);
   }
 };
 

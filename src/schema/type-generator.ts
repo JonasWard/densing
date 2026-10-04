@@ -1,4 +1,4 @@
-import { DenseSchema, DenseField } from '../schema-type';
+import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 
 /**
  * Generate TypeScript type definitions from a schema
@@ -109,7 +109,7 @@ const getFieldType = (field: DenseField, types: string[], processedTypes: Set<st
     }
 
     default:
-      return 'unknown';
+      return assertNeverDenseField(field);
   }
 };
 

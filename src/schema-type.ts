@@ -101,3 +101,12 @@ export const FieldTypes = [
   'object',
   'pointer'
 ] as const;
+
+/**
+ * Exhaustiveness guard for switches over `DenseField['type']`.
+ * Call it from the `default` arm: adding a field type then becomes a compile error at every switch
+ * that does not handle it, and a malformed schema throws instead of being silently skipped.
+ */
+export const assertNeverDenseField = (field: never): never => {
+  throw new Error(`Unknown field type "${(field as { type?: unknown })?.type}"`);
+};
