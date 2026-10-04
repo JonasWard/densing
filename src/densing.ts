@@ -12,7 +12,11 @@ import {
 } from './values';
 
 // bit-width helper methods
-export const bitsForRange = (range: number): number => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
+/**
+ * Bits needed for `range` distinct values: the bit length of `range - 1`. Integer arithmetic only:
+ * `Math.ceil(Math.log2(range))` under-counts by one bit just above large powers of two (2^49 + 1).
+ */
+export const bitsForRange = (range: number): number => (range <= 1 ? 0 : (range - 1).toString(2).length);
 const bitsForInt = (min: number, max: number): number => bitsForRange(Math.round(max - min) + 1);
 const bitsForFixed = (min: number, max: number, precision: number): number =>
   bitsForRange(fixedMaxStep(min, max, precision) + 1);

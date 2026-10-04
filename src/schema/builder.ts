@@ -11,6 +11,7 @@ import {
   ObjectField,
   PointerField
 } from '../schema-type';
+import { MAX_FIELD_BITS, fixedMaxStep } from '../values';
 
 /* =========================
  * Primitive Field Helpers
@@ -24,6 +25,8 @@ export const bool = (name: string, defaultValue: boolean = false): BoolField => 
 
 export const int = (name: string, min: number, max: number, defaultValue?: number): IntField => {
   if (max < min) throw new Error(`int "${name}": max < min`);
+  if (Math.round(max - min) >= 2 ** MAX_FIELD_BITS)
+    throw new Error(`int "${name}": range [${min}, ${max}] needs more than ${MAX_FIELD_BITS} bits`);
   return { type: 'int', name, min, max, defaultValue: defaultValue ?? min };
 };
 
@@ -49,6 +52,9 @@ export const fixed = (
   }
   if (max < min) {
     throw new Error(`fixed "${name}": max < min`);
+  }
+  if (fixedMaxStep(min, max, precision) >= 2 ** MAX_FIELD_BITS) {
+    throw new Error(`fixed "${name}": range [${min}, ${max}] at precision ${precision} needs more than ${MAX_FIELD_BITS} bits`);
   }
   return { type: 'fixed', name, min, max, precision, defaultValue: defaultValue ?? min };
 };

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- **Fields wider than 32 bits** (e.g. millisecond timestamps, longitude at `1e-8`) encoded but could not be decoded (`Cannot read more than 32 bits`). Fields up to 53 bits now round-trip; `int` and `fixed` throw at definition time when they need more
+- **Range widths** are computed as integer bit lengths: `ceil(log2(2^49 + 1))` evaluated to 49, one bit too few, for ranges just above large powers of two
+- **Fixed-point alignment** at very fine precisions (`1e-10`) allows for the floating-point error of large step counts
 - **BREAKING: `densing` rejects invalid data** instead of encoding it silently ([#2](https://github.com/JonasWard/densing/issues/2)). It throws a `DenseEncodeError` (with `path`, same notation as `validate`) for out-of-range or negative ints, non-integer ints (previously rounded), non-boolean bools, unknown enum values (previously encoded as a different option or as `undefined`), array / enum array lengths outside `[minLength, maxLength]` (previously corrupted the following fields), missing values and misaligned fixed-point values. Code that relied on wraparound or rounding must now clamp or round itself. `BitWriter.writeUInt` also throws instead of masking
 - **`validate` and `densing` share one set of value rules** (`src/values.ts`), so they cannot disagree
 - **Fixed-point precision check** in `validate` could never fail; `3.14` at precision `0.1` is now reported as not aligned, while values that are exact but awkward in binary (`0.1`, `100.3`) stay valid. The tolerance is `PRECISION_ALIGNMENT_TOLERANCE` ([#3](https://github.com/JonasWard/densing/issues/3))
