@@ -1,49 +1,7 @@
 // api.ts - High-level API methods for schema introspection and size calculation
 import { DenseSchema, DenseField, ObjectField, assertNeverDenseField } from './schema-type';
 import { getBitWidthForContantBitWidthFields, bitsForMinMaxLength, bitsForOptions } from './densing';
-
-/**
- * Resolve a field by name for a pointer
- * @param denseSchema - The `DenseSchema` to resolve the field in
- * @param pointerTargetName - The name of the field to resolve
- * @returns The resolved field or undefined if the field is not found
- */
-const resolveDenseFieldByNameForPointer = (
-  denseSchema: DenseSchema,
-  pointerTargetName: string
-): DenseField | undefined => {
-  const findField = (fields: DenseField[], visited = new Set<DenseField>()): DenseField | undefined => {
-    for (const field of fields) {
-      if (visited.has(field)) continue; // Prevent infinite loops
-      visited.add(field);
-
-      if (field.name === pointerTargetName) return field;
-
-      // Search nested fields
-      if (field.type === 'object') {
-        const found = findField(field.fields, visited);
-        if (found) return found;
-      } else if (field.type === 'union') {
-        for (const variantFields of Object.values(field.variants)) {
-          const found = findField(variantFields, visited);
-          if (found) return found;
-        }
-      } else if (field.type === 'array') {
-        // For arrays, check if the item itself is what we're looking for
-        if (field.items.name === pointerTargetName) return field.items;
-        // Also recurse into the items
-        const found = findField([field.items], visited);
-        if (found) return found;
-      } else if (field.type === 'optional') {
-        const found = findField([field.field], visited);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  };
-
-  return findField(denseSchema.fields);
-};
+import { resolvePointerOrThrow } from './schema/resolve';
 
 /**
  * Calculate the bit width RANGE for a field (min and max possible bits)
@@ -135,11 +93,8 @@ export const getDenseFieldBitWidthRange = (
 
     case 'pointer': {
       // Pointer: resolve the target field and return its range
-      if (!schema) throw new Error(`Pointer field "${field.name}" requires schema context`);
-      const targetField = resolveDenseFieldByNameForPointer(schema, field.targetName);
-      if (!targetField) throw new Error(`Pointer field "${field.name}" references unknown field "${field.targetName}"`);
       // Continue with the new visited set to detect recursion
-      return getDenseFieldBitWidthRange(targetField, schema, visited);
+      return getDenseFieldBitWidthRange(resolvePointerOrThrow(field, schema), schema, visited);
     }
 
     default:
@@ -199,11 +154,7 @@ export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schem
 
     case 'pointer': {
       // Pointer: resolve the target field and calculate its bit width
-      if (!schema) throw new Error(`Pointer field "${field.name}" requires schema context`);
-      const targetField = resolveDenseFieldByNameForPointer(schema, field.targetName);
-      if (!targetField) throw new Error(`Pointer field "${field.name}" references unknown field "${field.targetName}"`);
-
-      return calculateDenseFieldBitWidth(targetField, value, schema);
+      return calculateDenseFieldBitWidth(resolvePointerOrThrow(field, schema), value, schema);
     }
 
     default:

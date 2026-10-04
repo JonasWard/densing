@@ -1,41 +1,7 @@
 // codec.ts
 import { BitWriter, BitReader, BaseType } from './helpers';
 import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
-
-// Helper to resolve a field by name in a schema (for pointer support)
-const resolveFieldByName = (schema: DenseSchema, targetName: string): DenseField | undefined => {
-  const findField = (fields: DenseField[], visited = new Set<DenseField>()): DenseField | undefined => {
-    for (const field of fields) {
-      if (visited.has(field)) continue; // Prevent infinite loops
-      visited.add(field);
-      
-      if (field.name === targetName) return field;
-      
-      // Search nested fields
-      if (field.type === 'object') {
-        const found = findField(field.fields, visited);
-        if (found) return found;
-      } else if (field.type === 'union') {
-        for (const variantFields of Object.values(field.variants)) {
-          const found = findField(variantFields, visited);
-          if (found) return found;
-        }
-      } else if (field.type === 'array') {
-        // For arrays, check if the item itself is what we're looking for
-        if (field.items.name === targetName) return field.items;
-        // Also recurse into the items
-        const found = findField([field.items], visited);
-        if (found) return found;
-      } else if (field.type === 'optional') {
-        const found = findField([field.field], visited);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  };
-  
-  return findField(schema.fields);
-};
+import { resolvePointerOrThrow } from './schema/resolve';
 
 // bit-width helper methods
 export const bitsForRange = (range: number): number => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
@@ -176,13 +142,9 @@ export const densingField = (w: BitWriter, field: DenseField, value: any, schema
       break;
     }
 
-    case 'pointer': {
-      if (!schema) throw new Error(`Pointer field "${field.name}" requires schema context`);
-      const targetField = resolveFieldByName(schema, field.targetName);
-      if (!targetField) throw new Error(`Pointer field "${field.name}" references unknown field "${field.targetName}"`);
-      densingField(w, targetField, value, schema);
+    case 'pointer':
+      densingField(w, resolvePointerOrThrow(field, schema), value, schema);
       break;
-    }
 
     default:
       assertNeverDenseField(field);
@@ -280,13 +242,8 @@ export const undensingField = (r: BitReader, denseField: DenseField, schema?: De
     case 'object':
       return Object.fromEntries(denseField.fields.map((f) => [f.name, undensingField(r, f, schema)]));
 
-    case 'pointer': {
-      if (!schema) throw new Error(`Pointer field "${denseField.name}" requires schema context`);
-      const targetField = resolveFieldByName(schema, denseField.targetName);
-      if (!targetField)
-        throw new Error(`Pointer field "${denseField.name}" references unknown field "${denseField.targetName}"`);
-      return undensingField(r, targetField, schema);
-    }
+    case 'pointer':
+      return undensingField(r, resolvePointerOrThrow(denseField, schema), schema);
 
     default:
       return assertNeverDenseField(denseField);
