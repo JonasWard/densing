@@ -542,7 +542,7 @@ test('size calculation integration - complex schema', () => {
     id: 500,
     enabled: true,
     temperature: 20.5,
-    tags: [{ tag: 'a' }, { tag: 'c' }],
+    tags: ['a', 'c'],
     config: { port: 8080, secure: true },
   };
 

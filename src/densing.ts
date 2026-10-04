@@ -2,24 +2,20 @@
 import { BitWriter, BitReader, BaseType } from './helpers';
 import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
 import { resolvePointerOrThrow } from './schema/resolve';
+import {
+  DenseEncodeError,
+  constantFieldValueError,
+  fixedFromUInt,
+  fixedMaxStep,
+  lengthError,
+  uIntForFixed
+} from './values';
 
 // bit-width helper methods
 export const bitsForRange = (range: number): number => (range <= 1 ? 0 : Math.ceil(Math.log2(range)));
-const scaleForPrecision = (precision: number): number => Math.round(1 / precision);
 const bitsForInt = (min: number, max: number): number => bitsForRange(Math.round(max - min) + 1);
 const bitsForFixed = (min: number, max: number, precision: number): number =>
-  bitsForRange(Math.round((max - min) * scaleForPrecision(precision)) + 1);
-
-// to uInt helper methods
-const uIntForRange = (value: number): number => Math.round(value);
-const uIntForInt = (value: number, min: number): number => uIntForRange(value - min);
-const uIntForFixed = (value: number, min: number, precision: number): number =>
-  uIntForRange((value - min) * scaleForPrecision(precision));
-
-// from uInt helper methods
-const rangeFromUInt = (uInt: number): number => uInt;
-const intFromUint = (uInt: number, min: number): number => uIntForRange(uInt) + min;
-const fixedFromUint = (uInt: number, min: number, precision: number): number => uIntForRange(uInt) * precision + min;
+  bitsForRange(fixedMaxStep(min, max, precision) + 1);
 
 // array length helpers
 export const bitsForMinMaxLength = (minLength: number, maxLength: number): number =>
@@ -39,23 +35,36 @@ const sizeForOptions = (options: readonly string[]): number => options.length;
  * @param data - The data to dense
  * @param base - The base as string of characters, where every symbol is interpreted as a specific value
  * @returns The dense string in the given base
+ * @throws DenseEncodeError when the data does not match the schema (the same rules `validate()` checks)
  */
 export const densing = (denseSchema: DenseSchema, data: any, base: BaseType | string = 'base64url'): string => {
+  if (typeof data !== 'object' || data === null) throw new DenseEncodeError('', 'expected object');
   const w = new BitWriter();
-  denseSchema.fields.forEach((f) => densingField(w, f, data[f.name], denseSchema));
+  denseSchema.fields.forEach((f) => densingField(w, f, data[f.name], denseSchema, f.name));
   return w.getFromBase(base);
 };
 
-export const getUIntForConstantBitWidthField = (field: ConstantBitWidthField, value: any): number => {
+/**
+ * The unsigned integer stored for a constant-width field
+ * @throws DenseEncodeError when the value is not valid for the field
+ */
+export const getUIntForConstantBitWidthField = (
+  field: ConstantBitWidthField,
+  value: any,
+  path: string = field.name
+): number => {
+  const error = constantFieldValueError(field, value);
+  if (error) throw new DenseEncodeError(path, error);
+
   switch (field.type) {
     case 'bool':
       return value ? 1 : 0;
     case 'int':
-      return uIntForInt(value, field.min);
+      return value - field.min;
     case 'enum':
       return field.options.indexOf(value);
     case 'fixed':
-      return uIntForFixed(value, field.min, field.precision);
+      return uIntForFixed(field, value);
     default:
       return assertNeverDenseField(field);
   }
@@ -76,74 +85,89 @@ export const getBitWidthForContantBitWidthFields = (field: ConstantBitWidthField
   }
 };
 
+const writeLength = (w: BitWriter, length: number, minLength: number, maxLength: number, path: string) => {
+  const error = lengthError(length, minLength, maxLength);
+  if (error) throw new DenseEncodeError(path, error);
+  w.writeUInt(uIntForMinMaxLength(length, minLength), bitsForMinMaxLength(minLength, maxLength));
+};
+
 /**
  * Helper method to dense a single field of the schema into the given bit writer
  * @param w - The bit writer to write the dense data to
  * @param field - The field used as the template to dense the value with
- * @param value - The value to dense, should match the type of the field! This method doesn't do any validation of data!
+ * @param value - The value to dense
  * @param schema - The root schema (for resolving pointers)
+ * @param path - Path of the value, used in error messages
+ * @throws DenseEncodeError when the value does not match the field
  */
-export const densingField = (w: BitWriter, field: DenseField, value: any, schema?: DenseSchema): void => {
+export const densingField = (
+  w: BitWriter,
+  field: DenseField,
+  value: any,
+  schema?: DenseSchema,
+  path: string = field.name
+): void => {
+  if (value === undefined && field.type !== 'optional') throw new DenseEncodeError(path, 'missing value');
+
   switch (field.type) {
     case 'bool':
     case 'int':
     case 'enum':
     case 'fixed':
-      w.writeUInt(getUIntForConstantBitWidthField(field, value), getBitWidthForContantBitWidthFields(field));
+      w.writeUInt(getUIntForConstantBitWidthField(field, value, path), getBitWidthForContantBitWidthFields(field));
       break;
+
     case 'array': {
-      if (!Array.isArray(value)) throw new Error('value of `array` is not an array');
-      const arrayLengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
-      if (arrayLengthBits !== 0)
-        w.writeUInt(uIntForMinMaxLength((value as any[]).length, field.minLength), arrayLengthBits);
-      (value as any[]).forEach((v) => densingField(w, field.items, v, schema));
+      if (!Array.isArray(value)) throw new DenseEncodeError(path, 'expected array');
+      writeLength(w, value.length, field.minLength, field.maxLength, path);
+      value.forEach((v, i) => densingField(w, field.items, v, schema, `${path}[${i}]`));
       break;
     }
 
     case 'union': {
-      const discValue = value[field.discriminator.name];
-      const discIdx = field.discriminator.options.indexOf(discValue);
-      if (discIdx === -1) throw new Error(`Invalid union discriminator value: ${discValue}`);
-      w.writeUInt(discIdx, bitsForOptions(field.discriminator.options));
-      field.variants[discValue].forEach((f) => densingField(w, f, value[f.name], schema));
+      if (typeof value !== 'object' || value === null) throw new DenseEncodeError(path, 'expected object');
+      const { discriminator } = field;
+      const discValue = value[discriminator.name];
+      const discIdx = discriminator.options.indexOf(discValue);
+      if (discIdx === -1)
+        throw new DenseEncodeError(
+          `${path}.${discriminator.name}`,
+          `invalid discriminator "${discValue}", expected one of [${discriminator.options.join(', ')}]`
+        );
+      w.writeUInt(discIdx, bitsForOptions(discriminator.options));
+      field.variants[discValue].forEach((f) => densingField(w, f, value[f.name], schema, `${path}.${f.name}`));
       break;
     }
 
     case 'enum_array': {
-      if (!Array.isArray(value)) throw new Error('value of `enum_array` is not an array');
-      const arrayLengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
-      if (arrayLengthBits !== 0)
-        w.writeUInt(uIntForMinMaxLength((value as string[]).length, field.minLength), arrayLengthBits);
+      if (!Array.isArray(value)) throw new DenseEncodeError(path, 'expected array');
+      writeLength(w, value.length, field.minLength, field.maxLength, path);
 
       const base = BigInt(sizeForOptions(field.enum.options));
-
-      const result = (value as string[]).reduce((acc, c) => {
-        const idx = field.enum.options.indexOf(c);
-        if (idx === -1) throw new Error(`Invalid enum value in array: ${c}`);
-        return acc * base + BigInt(idx);
+      const result = value.reduce((acc: bigint, c: unknown, i: number) => {
+        const error = constantFieldValueError(field.enum, c);
+        if (error) throw new DenseEncodeError(`${path}[${i}]`, error);
+        return acc * base + BigInt(field.enum.options.indexOf(c as string));
       }, 0n);
-      const contentBits = bitsForEnumArrayContent(value.length, sizeForOptions(field.enum.options));
-      w.writeUInt(result, contentBits);
+      w.writeUInt(result, bitsForEnumArrayContent(value.length, sizeForOptions(field.enum.options)));
       break;
     }
 
     case 'optional': {
       const isPresent = value !== undefined && value !== null;
       w.writeUInt(isPresent ? 1 : 0, 1);
-      if (isPresent) {
-        densingField(w, field.field, value, schema);
-      }
+      if (isPresent) densingField(w, field.field, value, schema, path);
       break;
     }
 
     case 'object': {
-      if (typeof value !== 'object' || value === null) throw new Error('value of `object` is not an object');
-      field.fields.forEach((f) => densingField(w, f, value[f.name], schema));
+      if (typeof value !== 'object' || value === null) throw new DenseEncodeError(path, 'expected object');
+      field.fields.forEach((f) => densingField(w, f, value[f.name], schema, `${path}.${f.name}`));
       break;
     }
 
     case 'pointer':
-      densingField(w, resolvePointerOrThrow(field, schema), value, schema);
+      densingField(w, resolvePointerOrThrow(field, schema), value, schema, path);
       break;
 
     default:
@@ -170,11 +194,11 @@ export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthFie
     case 'bool':
       return Boolean(unsignedInt);
     case 'int':
-      return intFromUint(unsignedInt, field.min);
+      return unsignedInt + field.min;
     case 'enum':
       return field.options[unsignedInt];
     case 'fixed':
-      return fixedFromUint(unsignedInt, field.min, field.precision);
+      return fixedFromUInt(field, unsignedInt);
     default:
       return assertNeverDenseField(field);
   }

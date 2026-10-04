@@ -217,6 +217,10 @@ if (!result.valid) {
 }
 ```
 
+`densing` applies the same rules and throws a `DenseEncodeError` (with the same `path`) for the first
+invalid value, so invalid data never turns into a valid-looking payload. Use `validate` when you want
+every error at once, e.g. to show them in a form.
+
 ### Size Analysis
 
 See exactly how your data will be encoded:
