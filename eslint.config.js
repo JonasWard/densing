@@ -29,7 +29,9 @@ export default [
       '@typescript-eslint/no-non-null-assertion': 'warn',
       'no-console': 'off',
       'prefer-const': 'warn',
-      'no-var': 'error'
+      'no-var': 'error',
+      'no-shadow': 'off',
+      '@typescript-eslint/no-shadow': 'error'
     }
   },
   {
