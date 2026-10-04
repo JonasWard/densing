@@ -20,6 +20,8 @@
 
 ### Changed
 
+- **BREAKING: builders validate at definition time**: default values must be valid for their field (`int('x', 0, 10, 99)`, `enumeration('e', ['a','b'], 'zzz')`, an invalid `optional` or `enumArray` default); `int` bounds must be safe integers and `fixed` bounds finite; enum options must be strings; fields that share a data object must have distinct names (top-level, in an `object`, and in each union variant together with the discriminator); union variants must all be discriminator options
+- **`enumArray` default**: without an explicit default it is now `minLength` copies of the enum's default (previously `[]`, which was invalid whenever `minLength > 0`)
 - **BREAKING (analysis only)**: the maximum size of a recursive schema is reported as `Infinity` instead of `Number.MAX_SAFE_INTEGER` (and sums of it). `utilizationPercent` is `0` for such schemas. `getDenseFieldBitWidthRange` no longer takes the internal third `visited` parameter
 - **Pointer resolution** is implemented once (`src/schema/resolve.ts`) and shared by the codec and the size analysis, and resolved targets are cached per schema ([#6](https://github.com/JonasWard/densing/issues/6))
 
