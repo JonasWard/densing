@@ -370,7 +370,7 @@ bun test
 
 ## 📖 API Reference
 
-For detailed API documentation, see [API.md](./API.md).
+For detailed API documentation, see [API.md](./API.md). The encoding itself is specified in [FORMAT.md](./FORMAT.md).
 
 ### Core Functions
 
