@@ -3,7 +3,7 @@ import { densing, undensing } from '../densing';
 import { BitWriter } from '../helpers';
 import { array, bool, enumArray, enumeration, fixed, int, object, optional, schema, union } from '../schema/builder';
 import { validate } from '../schema/validation';
-import { DenseEncodeError } from '../values';
+import { DenseEncodeError } from '../errors';
 
 const encodeError = (fn: () => unknown): DenseEncodeError => {
   try {

@@ -378,7 +378,7 @@ For detailed API documentation, see [API.md](./API.md). The encoding itself is s
 
 - `schema(...fields)` - Define a schema
 - `densing(schema, data, base?)` - Encode data
-- `undensing(schema, encoded, base?)` - Decode data
+- `undensing(schema, encoded, base?)` - Decode data (throws `DenseDecodeError` for strings the encoder cannot produce, e.g. edited or truncated URLs)
 - `validate(schema, data)` - Validate data
 - `getDefaultData(schema)` - Generate default values
 

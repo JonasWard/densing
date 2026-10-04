@@ -10,20 +10,6 @@ import { ConstantBitWidthField, FixedPointField, assertNeverDenseField } from '.
 export const PRECISION_ALIGNMENT_TOLERANCE = 1e-6;
 
 /**
- * Error thrown by `densing` when the data does not match the schema.
- * `path` uses the same notation as `validate()` (`a.b`, `list[2]`).
- */
-export class DenseEncodeError extends Error {
-  readonly path: string;
-
-  constructor(path: string, message: string) {
-    super(path ? `${path}: ${message}` : message);
-    this.name = 'DenseEncodeError';
-    this.path = path;
-  }
-}
-
-/**
  * Widest `int` / `fixed` field: values are JS numbers, which hold integers exactly up to 2^53.
  */
 export const MAX_FIELD_BITS = 53;

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **BREAKING: `undensing` rejects malformed input** with a `DenseDecodeError` (with `path`) instead of returning wrong data or crashing: characters outside the alphabet (previously read as digit −1), stored values above a field's maximum (an `int` above `max`, an enum index past the options, which decoded to `undefined`), union discriminator indices past the options (previously a raw `TypeError`), array lengths above `maxLength`, invalid `enum_array` content, too few characters, trailing characters, non-zero padding bits and over-capacity base38 strings. Every payload now has exactly one valid spelling
 - **Fields wider than 32 bits** (e.g. millisecond timestamps, longitude at `1e-8`) encoded but could not be decoded (`Cannot read more than 32 bits`). Fields up to 53 bits now round-trip; `int` and `fixed` throw at definition time when they need more
 - **Range widths** are computed as integer bit lengths: `ceil(log2(2^49 + 1))` evaluated to 49, one bit too few, for ranges just above large powers of two
 - **Fixed-point alignment** at very fine precisions (`1e-10`) allows for the floating-point error of large step counts

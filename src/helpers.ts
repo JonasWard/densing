@@ -1,3 +1,5 @@
+import { DenseDecodeError } from './errors';
+
 /**
  * In Densing defined base types
  * You can provide your own as well
@@ -53,12 +55,16 @@ const getBaseStringFromBigInt = (bigInt: bigint, baseChars: string, bitWidth?: n
 const getCharsForBase = (base: BaseType | string): string =>
   BaseTypes.includes(base as BaseType) ? baseCharTypes[base as BaseType] : base;
 
+/** @throws DenseDecodeError for a character that is not in the alphabet */
 const getBigIntFromBaseString = (baseString: string, baseChars: string): bigint => {
   const base = BigInt(baseChars.length);
-  return baseString
-    .split('')
-    .map((c) => baseChars.indexOf(c))
-    .reduce((acc, n) => acc * base + BigInt(n), 0n);
+  let acc = 0n;
+  for (let i = 0; i < baseString.length; i++) {
+    const digit = baseChars.indexOf(baseString[i]);
+    if (digit === -1) throw new DenseDecodeError('', `invalid character "${baseString[i]}" at position ${i}`);
+    acc = acc * base + BigInt(digit);
+  }
+  return acc;
 };
 
 export const getBigIntFromBase64 = (base64: string): bigint => getBigIntFromBaseString(base64, base64url);
@@ -114,10 +120,16 @@ export class BitWriter {
 export class BitReader {
   private buffer: bigint;
   private bitsLeft: number;
+  private readonly totalBits: number;
+  private readonly charCount: number;
+  private readonly baseChars: string;
 
-  private constructor(bigInt: bigint, totalBits: number) {
+  private constructor(bigInt: bigint, totalBits: number, charCount: number, baseChars: string) {
     this.buffer = bigInt;
     this.bitsLeft = totalBits;
+    this.totalBits = totalBits;
+    this.charCount = charCount;
+    this.baseChars = baseChars;
   }
 
   /** Read an unsigned integer of up to 53 bits (the safe-integer range of a JS number) */
@@ -127,10 +139,11 @@ export class BitReader {
     return Number(this.readUBigInt(bitWidth));
   };
 
+  /** @throws DenseDecodeError when the payload ends before `bitWidth` more bits */
   readUBigInt = (bitWidth: number): bigint => {
     if (bitWidth === 0) return 0n;
     if (bitWidth > this.bitsLeft)
-      throw new Error(`Not enough bits left (${this.bitsLeft}) when trying to get ${bitWidth}`);
+      throw new DenseDecodeError('', `unexpected end of input: ${bitWidth} more bits needed, ${this.bitsLeft} left`);
 
     // applying the bitWidth delta to the bitsLeft
     this.bitsLeft -= bitWidth;
@@ -144,9 +157,34 @@ export class BitReader {
     return value;
   };
 
-  static getFromBase = (baseString: string, base: BaseType | string): BitReader =>
-    new BitReader(
-      getBigIntFromBaseString(baseString, getCharsForBase(base)),
-      getMaxBitWidthForBase(baseString, getCharsForBase(base))
-    );
+  getBitsLeft = (): number => this.bitsLeft;
+
+  /**
+   * Check that the payload ends where the encoder would have ended it: exactly as many characters as
+   * the bits read need, and zero padding. Rejects trailing characters and non-canonical encodings, so
+   * every payload decodes from exactly one string.
+   * @throws DenseDecodeError
+   */
+  assertCanonicalEnd = (): void => {
+    const bitsRead = this.totalBits - this.bitsLeft;
+    const expectedChars = bitsRead === 0 ? 0 : getMinRequiredCharsForBase(bitsRead, this.baseChars);
+    if (this.charCount !== expectedChars)
+      throw new DenseDecodeError(
+        '',
+        `expected ${expectedChars} characters for ${bitsRead} bits of data, got ${this.charCount}`
+      );
+    if (this.readUBigInt(this.bitsLeft) !== 0n) throw new DenseDecodeError('', 'non-zero padding bits');
+  };
+
+  /** @throws DenseDecodeError for characters outside the alphabet or a value the characters cannot be */
+  static getFromBase = (baseString: string, base: BaseType | string): BitReader => {
+    const baseChars = getCharsForBase(base);
+    const value = getBigIntFromBaseString(baseString, baseChars);
+    const totalBits = getMaxBitWidthForBase(baseString, baseChars);
+    // alphabets whose size is not a power of two can spell values above the bit capacity; the
+    // encoder never produces them
+    if (value >> BigInt(totalBits) !== 0n)
+      throw new DenseDecodeError('', `value exceeds the ${totalBits} bits ${baseString.length} characters hold`);
+    return new BitReader(value, totalBits, baseString.length, baseChars);
+  };
 }
