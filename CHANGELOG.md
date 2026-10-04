@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Size analysis with reused field names**: `getDenseFieldBitWidthRange` keyed its recursion guard on `type:name` and shared it across siblings, so any second field with the same type and name (e.g. `v` in two nested objects, or in two union variants) reported `{ min: 0, max: 9007199254740991 }`, corrupting `analyzeDenseSchemaSize` and `calculateDenseDataSize`. Only pointers now take part in cycle detection, per branch ([#1](https://github.com/JonasWard/densing/issues/1))
+- **Minimum size of recursive schemas** is now exact (the expression example reported 1 bit instead of 11)
 - **Unknown field types** now throw in every consumer (`densing`, `undensing`, `validate`, `getDefaultData`, `generateTypes`, size analysis, `walkDenseSchema`) instead of writing nothing, reporting 0 bits or returning `undefined`; `assertNeverDenseField` makes a missing case a compile error ([#7](https://github.com/JonasWard/densing/issues/7))
 - **README**: the recursive-structures example used `createRecursiveUnion` (removed in 0.2.0) and quoted 190 bits for a 40-bit payload; it now uses `pointer`, and every size figure in the README is asserted by `readme-examples.test.ts` ([#8](https://github.com/JonasWard/densing/issues/8))
 - **`getBigIntFrombaseQRCode45UrlSafe`** decoded using its own input as the alphabet (the parameter shadowed the alphabet constant); `@typescript-eslint/no-shadow` is now enforced ([#5](https://github.com/JonasWard/densing/issues/5))
@@ -11,6 +13,7 @@
 
 ### Changed
 
+- **BREAKING (analysis only)**: the maximum size of a recursive schema is reported as `Infinity` instead of `Number.MAX_SAFE_INTEGER` (and sums of it). `utilizationPercent` is `0` for such schemas. `getDenseFieldBitWidthRange` no longer takes the internal third `visited` parameter
 - **Pointer resolution** is implemented once (`src/schema/resolve.ts`) and shared by the codec and the size analysis, and resolved targets are cached per schema ([#6](https://github.com/JonasWard/densing/issues/6))
 
 ### Added

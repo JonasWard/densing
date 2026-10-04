@@ -1,7 +1,7 @@
 // api.test.ts - Test the high-level API methods
 import { test, expect } from 'bun:test';
 import { schema } from '../schema/builder';
-import { int, fixed, bool, enumeration, optional, object, array, union, enumArray } from '../schema/builder';
+import { int, fixed, bool, enumeration, optional, object, array, union, enumArray, pointer } from '../schema/builder';
 import {
   getDenseFieldBitWidthRange,
   calculateDenseFieldBitWidth,
@@ -552,4 +552,46 @@ test('size calculation integration - complex schema', () => {
   // Verify calculated size matches actual encoding
   expect(sizeInfo.totalBits).toBe(encoded.length);
   console.log(`Complex schema encodes to ${sizeInfo.base64Length} base64 chars (${sizeInfo.totalBits} bits)`);
+});
+
+// ===== Regression: #1 - ranges with reused field names and recursion =====
+
+test('getDenseFieldBitWidthRange - same-named fields in nested objects each report their width', () => {
+  const S = schema(object('root', int('v', 0, 1000), object('nested', int('v', 0, 1000))));
+  expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 20, max: 20 });
+});
+
+test('getDenseFieldBitWidthRange - same-named fields across union variants', () => {
+  const S = schema(union('u', enumeration('t', ['x', 'y']), { x: [int('v', 0, 255)], y: [int('v', 0, 255)] }));
+  expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 9, max: 9 });
+});
+
+test('getDenseFieldBitWidthRange - two pointers to the same non-recursive target', () => {
+  const S = schema(object('point', int('x', 0, 255), int('y', 0, 255)), pointer('a', 'point'), pointer('b', 'point'));
+  expect(analyzeDenseSchemaSize(S).staticRange).toMatchObject({ minBits: 48, maxBits: 48 });
+});
+
+test('getDenseFieldBitWidthRange - recursive union: tight min, unbounded max', () => {
+  const S = schema(
+    union('expr', enumeration('type', ['number', 'add']), {
+      number: [int('value', 0, 1000)],
+      add: [pointer('left', 'expr'), pointer('right', 'expr')]
+    })
+  );
+  // smallest payload is a single number node: 1 discriminator bit + 10 value bits
+  expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 11, max: Infinity });
+  const size = calculateDenseDataSize(S, { expr: { type: 'number', value: 3 } });
+  expect(size.efficiency.minPossibleBits).toBe(11);
+  expect(size.efficiency.maxPossibleBits).toBe(Infinity);
+  expect(size.efficiency.utilizationPercent).toBe(0);
+});
+
+test('getDenseFieldBitWidthRange - recursive linked list through an optional', () => {
+  const S = schema(object('node', int('v', 0, 7), optional('next', pointer('n', 'node'))));
+  expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 4, max: Infinity });
+});
+
+test('getDenseFieldBitWidthRange - recursion behind an array that may be empty', () => {
+  const S = schema(object('tree', int('v', 0, 7), array('children', 0, 3, pointer('child', 'tree'))));
+  expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 5, max: Infinity });
 });
