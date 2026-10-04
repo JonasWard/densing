@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **README**: the recursive-structures example used `createRecursiveUnion` (removed in 0.2.0) and quoted 190 bits for a 40-bit payload; it now uses `pointer`, and every size figure in the README is asserted by `readme-examples.test.ts` ([#8](https://github.com/JonasWard/densing/issues/8))
 - **`getBigIntFrombaseQRCode45UrlSafe`** decoded using its own input as the alphabet (the parameter shadowed the alphabet constant); `@typescript-eslint/no-shadow` is now enforced ([#5](https://github.com/JonasWard/densing/issues/5))
 - **Lint coverage**: `bun run lint` now lints all of `src/`; the unquoted `src/**/*.ts` glob skipped the top-level `densing.ts`, `api.ts` and `helpers.ts`
 
