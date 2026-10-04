@@ -1,6 +1,7 @@
 // codec.ts
 import { BitWriter, BitReader } from './codec/bits';
 import { BaseSpec } from './encoding/alphabets';
+import { bitsForDigits } from './encoding/radix';
 import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
 import { resolvePointerOrThrow } from './schema/resolve';
 import { DenseDecodeError, DenseEncodeError } from './errors';
@@ -27,8 +28,8 @@ export const bitsForMinMaxLength = (minLength: number, maxLength: number): numbe
   bitsForRange(maxLength - minLength + 1);
 const uIntForMinMaxLength = (value: number, minLength: number): number => value - minLength;
 export const lengthForUIntMinMaxLength = (uInt: number, minLength: number): number => uInt + minLength;
-const bitsForEnumArrayContent = (length: number, base: number): number =>
-  length < 1 ? 0 : Math.ceil(length * Math.log2(base));
+/** Bits of an enum array's content: `length` digits in base `base` (see FORMAT.md) */
+export const bitsForEnumArrayContent = (length: number, base: number): number => bitsForDigits(length, base);
 
 // options helper methods
 export const bitsForOptions = (options: readonly string[]): number => bitsForRange(options.length);

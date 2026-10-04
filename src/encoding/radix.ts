@@ -3,11 +3,56 @@
 import { DenseDecodeError } from '../errors';
 import { base64url, baseQRCode45UrlSafe } from './alphabets';
 
-/** Smallest number of characters of a `base`-character alphabet that hold `bits` bits */
-export const charsForBits = (bits: number, base: number): number => (bits <= 0 ? 0 : Math.ceil(bits / Math.log2(base)));
+// Width arithmetic is integer-only (no Math.log2): floating-point logarithms are not required to be
+// correctly rounded, so another implementation could compute a different width and misread every
+// field after it. See FORMAT.md.
 
-/** Number of whole bits `chars` characters of a `base`-character alphabet hold */
-export const bitsForChars = (chars: number, base: number): number => Math.floor(chars * Math.log2(base));
+/** Number of bits in the binary representation of `n` (0 for 0) */
+export const bitLength = (n: bigint): number => (n <= 0n ? 0 : n.toString(2).length);
+
+/** `k` when `base` is `2^k`, otherwise `undefined` */
+const powerOfTwoExponent = (base: number): number | undefined =>
+  (base & (base - 1)) === 0 ? bitLength(BigInt(base)) - 1 : undefined;
+
+/** Smallest number of characters of a `base`-character alphabet that hold `bits` bits: min c with base^c >= 2^bits */
+export const charsForBits = (bits: number, base: number): number => {
+  if (bits <= 0) return 0;
+  const k = powerOfTwoExponent(base);
+  if (k !== undefined) return Math.ceil(bits / k);
+
+  // each character holds between floor(log2 base) and ceil(log2 base) bits: start from the lower
+  // bound on the count and step up exactly
+  const b = BigInt(base);
+  const target = 1n << BigInt(bits);
+  let chars = Math.ceil(bits / bitLength(b));
+  let capacity = b ** BigInt(chars);
+  while (capacity < target) (capacity *= b), chars++;
+  return chars;
+};
+
+/** Number of whole bits `chars` characters of a `base`-character alphabet hold: floor(log2(base^chars)) */
+export const bitsForChars = (chars: number, base: number): number => {
+  if (chars <= 0) return 0;
+  const k = powerOfTwoExponent(base);
+  if (k !== undefined) return chars * k;
+  return bitLength(BigInt(base) ** BigInt(chars)) - 1;
+};
+
+const digitBitsCache = new Map<string, number>();
+
+/** Bits needed for any `count`-digit number in `base`: the bit length of `base^count - 1` */
+export const bitsForDigits = (count: number, base: number): number => {
+  if (count < 1) return 0;
+  const k = powerOfTwoExponent(base);
+  if (k !== undefined) return count * k;
+  const key = `${base}:${count}`;
+  let bits = digitBitsCache.get(key);
+  if (bits === undefined) {
+    bits = bitLength(BigInt(base) ** BigInt(count) - 1n);
+    digitBitsCache.set(key, bits);
+  }
+  return bits;
+};
 
 /**
  * Write a non-negative value in an alphabet, most significant digit first, padded with leading zero
