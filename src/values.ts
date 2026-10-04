@@ -23,29 +23,44 @@ export class DenseEncodeError extends Error {
   }
 }
 
+/**
+ * Widest `int` / `fixed` field: values are JS numbers, which hold integers exactly up to 2^53.
+ */
+export const MAX_FIELD_BITS = 53;
+
 export const scaleForPrecision = (precision: number): number => Math.round(1 / precision);
 
-/** Snap a value expressed in steps to the nearest integer when it is within tolerance of it */
-const snapToStep = (steps: number): number => {
-  const rounded = Math.round(steps);
-  return Math.abs(steps - rounded) <= PRECISION_ALIGNMENT_TOLERANCE ? rounded : steps;
-};
+/**
+ * Whether `steps` lies on a step. `magnitude` is the size of the operands `steps` was computed from:
+ * besides the fixed tolerance, a few ulps of it are allowed, which is the floating-point error of
+ * `value * scale` for large step counts (e.g. `fixed(-180, 180, 1e-10)`).
+ */
+const isOnStep = (steps: number, magnitude: number = Math.abs(steps)): boolean =>
+  Math.abs(steps - Math.round(steps)) <= PRECISION_ALIGNMENT_TOLERANCE + magnitude * 8 * Number.EPSILON;
 
 /**
  * `min` in steps. It is an integer whenever `min` lies on the precision grid, which keeps the
  * arithmetic in the integer domain so that decoded values are the closest double to the decimal.
  */
-const fixedMinSteps = (field: FixedPointField): number => snapToStep(field.min * scaleForPrecision(field.precision));
+const fixedMinSteps = (field: FixedPointField): number => {
+  const steps = field.min * scaleForPrecision(field.precision);
+  return isOnStep(steps) ? Math.round(steps) : steps;
+};
 
 /** Number of steps between `min` and `max`; the stored value is in `[0, fixedMaxStep]` */
 export const fixedMaxStep = (min: number, max: number, precision: number): number =>
   Math.round((max - min) * scaleForPrecision(precision));
 
-/** The (unrounded) offset of a value from `min`, in steps */
-const fixedSteps = (field: FixedPointField, value: number): number =>
-  value * scaleForPrecision(field.precision) - fixedMinSteps(field);
+/** The (unrounded) offset of a value from `min` in steps, and whether it lies on a step */
+const fixedSteps = (field: FixedPointField, value: number): { steps: number; aligned: boolean } => {
+  const scaled = value * scaleForPrecision(field.precision);
+  const minSteps = fixedMinSteps(field);
+  const steps = scaled - minSteps;
+  return { steps, aligned: isOnStep(steps, Math.abs(scaled) + Math.abs(minSteps)) };
+};
 
-export const uIntForFixed = (field: FixedPointField, value: number): number => Math.round(fixedSteps(field, value));
+export const uIntForFixed = (field: FixedPointField, value: number): number =>
+  Math.round(fixedSteps(field, value).steps);
 
 /** Inverse of `uIntForFixed`: divides exactly once, so `0.1` decodes as `0.1` */
 export const fixedFromUInt = (field: FixedPointField, uInt: number): number =>
@@ -68,11 +83,11 @@ export const constantFieldValueError = (field: ConstantBitWidthField, value: unk
 
     case 'fixed': {
       if (typeof value !== 'number' || !Number.isFinite(value)) return 'expected number';
-      const steps = fixedSteps(field, value);
+      const { steps, aligned } = fixedSteps(field, value);
       const step = Math.round(steps);
       if (step < 0 || step > fixedMaxStep(field.min, field.max, field.precision))
         return outOfRange(value, field.min, field.max);
-      if (Math.abs(steps - step) > PRECISION_ALIGNMENT_TOLERANCE)
+      if (!aligned)
         return `value ${value} does not align with precision ${field.precision}`;
       return undefined;
     }

@@ -26,6 +26,8 @@ significant bits. There is no little-endian ordering anywhere in the format.
 `bits(r)` is the number of bits needed for `r` distinct values: `0` for `r <= 1`, otherwise the bit
 length of `r - 1` (i.e. `ceil(log2(r))`).
 
+`int` and `fixed` fields are at most 53 bits wide, so every stored value is an exact JavaScript number.
+
 ## 2. Field encodings
 
 | Field | Encoding |

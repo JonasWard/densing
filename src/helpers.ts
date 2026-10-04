@@ -120,9 +120,10 @@ export class BitReader {
     this.bitsLeft = totalBits;
   }
 
+  /** Read an unsigned integer of up to 53 bits (the safe-integer range of a JS number) */
   readUInt = (bitWidth: number): number => {
     if (bitWidth === 0) return 0;
-    if (bitWidth > 32) throw new Error('Cannot read more than 32 bits into a UInt at a time');
+    if (bitWidth > 53) throw new Error(`Cannot read ${bitWidth} bits into a number (at most 53)`);
     return Number(this.readUBigInt(bitWidth));
   };
 
