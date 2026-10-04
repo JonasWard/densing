@@ -82,16 +82,21 @@ export class BitWriter {
     this.bitsWritten = 0;
   }
 
+  /**
+   * Append `value` as an unsigned integer of exactly `bitWidth` bits
+   * @throws when the value is not a non-negative integer that fits in `bitWidth` bits; values are
+   * never truncated, so a bad value cannot turn into a valid-looking payload
+   */
   writeUInt = (value: number | bigint, bitWidth: number): void => {
+    if (typeof value === 'number' && !Number.isInteger(value))
+      throw new RangeError(`Cannot write ${value}: not an integer`);
+    const v = BigInt(value);
+    if (v < 0n || v >> BigInt(Math.max(bitWidth, 0)) !== 0n)
+      throw new RangeError(`Cannot write ${value} in ${Math.max(bitWidth, 0)} bits`);
     if (bitWidth <= 0) return;
 
     const bw = BigInt(bitWidth);
-    const v = BigInt(value);
-
-    // mask the value of the bit width
-    const masked = v & ((1n << bw) - 1n);
-
-    this.buffer = (this.buffer << bw) | masked;
+    this.buffer = (this.buffer << bw) | v;
     this.bitsWritten += bitWidth;
   };
 
