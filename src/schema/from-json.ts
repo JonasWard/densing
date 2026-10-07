@@ -1,6 +1,5 @@
 import { DenseField, DenseSchema, EnumField, FieldTypes } from '../schema-type';
-import { resolveFieldByName } from '../densing';
-import { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, union } from './builder';
+import { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, schema, union } from './builder';
 
 type JsonObject = Record<string, unknown>;
 
@@ -143,34 +142,10 @@ const fieldsFromJson = (json: unknown, path: string): DenseField[] => {
   return json.map((field, i) => fieldFromJson(field, `${path}[${i}]`));
 };
 
-const checkPointers = (schema: DenseSchema, fields: DenseField[], path: string): void =>
-  fields.forEach((field, i) => {
-    const fieldPath = `${path}[${i}]`;
-    switch (field.type) {
-      case 'pointer':
-        if (!resolveFieldByName(schema, field.targetName))
-          fail(fieldPath, `pointer "${field.name}" references unknown field "${field.targetName}"`);
-        break;
-      case 'array':
-        checkPointers(schema, [field.items], `${fieldPath}.items`);
-        break;
-      case 'optional':
-        checkPointers(schema, [field.field], `${fieldPath}.field`);
-        break;
-      case 'object':
-        checkPointers(schema, field.fields, `${fieldPath}.fields`);
-        break;
-      case 'union':
-        Object.entries(field.variants).forEach(([key, variantFields]) =>
-          checkPointers(schema, variantFields, `${fieldPath}.variants.${key}`)
-        );
-        break;
-    }
-  });
-
 /**
  * Load a schema from its JSON representation (e.g. the output of `JSON.stringify(schema)`)
- * Every field is rebuilt with the builder helpers, so the same validation applies and missing defaults are filled in
+ * Every field is rebuilt with the builder helpers and the result with `schema()`, so the same validation applies
+ * (including `validateSchema`'s pointer checks) and missing defaults are filled in
  * @param input - the schema as JSON string or already parsed object
  * @returns `DenseSchema` - the validated schema
  * @throws if the input is not a valid schema, the message contains the path of the offending field
@@ -189,7 +164,12 @@ export const schemaFromJson = (input: unknown): DenseSchema => {
   const unknownKeys = Object.keys(json).filter((key) => key !== 'fields');
   if (unknownKeys.length) fail('root', `unknown propert${unknownKeys.length > 1 ? 'ies' : 'y'} ${unknownKeys.join(', ')}`);
 
-  const schema: DenseSchema = { fields: fieldsFromJson(json.fields, 'fields') };
-  checkPointers(schema, schema.fields, 'fields');
-  return schema;
+  const fields = fieldsFromJson(json.fields, 'fields');
+  try {
+    return schema(...fields);
+  } catch (error) {
+    // whole-schema checks (duplicate top-level names, pointer targets), their messages carry the data path
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid schema: ${message.replace(/^invalid schema: /, '')}`);
+  }
 };

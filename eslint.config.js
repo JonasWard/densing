@@ -31,7 +31,23 @@ export default [
       '@typescript-eslint/no-non-null-assertion': 'warn',
       'no-console': 'off',
       'prefer-const': 'warn',
-      'no-var': 'error'
+      'no-var': 'error',
+      'no-shadow': 'off',
+      '@typescript-eslint/no-shadow': 'error'
+    }
+  },
+  {
+    // The codec kernel (bit stream, alphabets, radix conversion) must not depend on the schema layer
+    files: ['src/codec/**/*.ts', 'src/encoding/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['**/schema', '**/schema/**', '**/schema-type', '**/densing', '**/api', '**/values', '**/index'], message: 'codec/ and encoding/ must not depend on the schema layer' }
+          ]
+        }
+      ]
     }
   },
   {

@@ -1,7 +1,8 @@
 import {
-  base64url,
-  baseQRCode45UrlSafe,
-  binary,
+  BaseTypes,
+  customBase,
+  DenseDecodeError,
+  DenseEncodeError,
   analyzeDenseSchemaSize,
   calculateDenseDataSize,
   densing,
@@ -10,23 +11,23 @@ import {
   getDefaultData,
   undensing,
   validate,
+  type BaseSpec,
+  type BaseType,
   type DenseSchema
 } from 'densing';
 import { CliError } from './io';
 
-const namedBases: Record<string, string> = { base64url, baseQRCode45UrlSafe, binary };
-
 /**
- * Resolve the `--base` option to its alphabet: one of the named bases, or a custom alphabet of unique characters
+ * Resolve the `--base` option: one of the named bases, otherwise a custom alphabet
+ * (validated by `customBase`: at least 2 unique characters)
  */
-export const resolveBase = (base: string): string => {
-  const chars = namedBases[base] ?? base;
-  if (chars.length < 2 || new Set(chars).size !== chars.length)
-    throw new CliError(
-      `invalid base "${base}": use ${Object.keys(namedBases).join(', ')} or at least 2 unique characters`,
-      2
-    );
-  return chars;
+export const resolveBase = (base: string): BaseSpec => {
+  if (BaseTypes.includes(base as BaseType)) return base;
+  try {
+    return customBase(base);
+  } catch (error) {
+    throw new CliError(`invalid base: ${(error as Error).message}, use ${BaseTypes.join(', ')} or a custom alphabet`, 2);
+  }
 };
 
 export const formatJson = (value: unknown, compact = false): string =>
@@ -44,20 +45,25 @@ const assertValid = (schema: DenseSchema, data: unknown): void => {
 };
 
 export const encodeCommand = (schema: DenseSchema, data: unknown, base: string): string => {
-  const chars = resolveBase(base);
+  const baseSpec = resolveBase(base);
+  // validate first, to report every invalid field instead of only the first one `densing` throws on
   assertValid(schema, data);
-  return densing(schema, data, chars);
+  try {
+    return densing(schema, data, baseSpec);
+  } catch (error) {
+    if (error instanceof DenseEncodeError) throw new CliError(`could not encode: ${error.message}`, 1);
+    throw error;
+  }
 };
 
 export const decodeCommand = (schema: DenseSchema, encoded: string, base: string, compact = false): string => {
   if (!encoded) throw new CliError('nothing to decode', 1);
-  const chars = resolveBase(base);
-  const invalid = [...new Set(encoded)].filter((c) => !chars.includes(c));
-  if (invalid.length) throw new CliError(`"${encoded}" contains characters outside of the base: ${invalid.join(' ')}`, 1);
+  const baseSpec = resolveBase(base);
   try {
-    return formatJson(undensing(schema, encoded, chars), compact);
+    return formatJson(undensing(schema, encoded, baseSpec), compact);
   } catch (error) {
-    throw new CliError(`could not decode "${encoded}": ${(error as Error).message}`, 1);
+    if (error instanceof DenseDecodeError) throw new CliError(`could not decode "${encoded}": ${error.message}`, 1);
+    throw error;
   }
 };
 

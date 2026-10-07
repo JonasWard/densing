@@ -1,4 +1,4 @@
-import { BitReader, BitWriter } from '../helpers';
+import { BitReader, BitWriter } from '../codec/bits';
 import { DenseField, DenseSchema } from '../schema-type';
 import {
   densingField as originalEncodeField,

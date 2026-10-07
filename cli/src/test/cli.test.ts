@@ -115,16 +115,22 @@ describe('encode / decode', () => {
     expect(stderr).toContain('deviceId: value 4200 out of range [0, 1000]');
   });
 
+  test('rejects strings the encoder cannot produce', async () => {
+    const { code, stderr } = await run(['decode', '-s', file('device.json'), 'Cqnu', '-b', 'binary']);
+    expect(code).toBe(1);
+    expect(stderr).toContain('could not decode "Cqnu"');
+  });
+
   test('rejects encoded strings with characters outside of the base', async () => {
     const { code, stderr } = await run(['decode', '-s', file('device.json'), 'Cq!u']);
     expect(code).toBe(1);
-    expect(stderr).toContain('characters outside of the base: !');
+    expect(stderr).toContain('invalid character "!" at position 2');
   });
 
   test('rejects invalid custom bases', async () => {
     const { code, stderr } = await run(['encode', '-s', file('device.json'), file('device-data.json'), '-b', 'aab']);
     expect(code).toBe(2);
-    expect(stderr).toContain('invalid base "aab"');
+    expect(stderr).toContain('invalid base: alphabet "aab": duplicate character "a"');
   });
 });
 
@@ -215,6 +221,6 @@ describe('executable', () => {
 
     const fail = Bun.spawnSync(['bun', entry, 'decode', '-s', file('device.json'), 'Cq!u']);
     expect(fail.exitCode).toBe(1);
-    expect(fail.stderr.toString()).toContain('characters outside of the base');
+    expect(fail.stderr.toString()).toContain('invalid character "!"');
   });
 });

@@ -156,9 +156,23 @@ describe('schemaFromJson - errors', () => {
     ).toThrow('Invalid schema at fields[0].variants.b[0]: "max" must be a finite number');
   });
 
-  test('rejects pointers to unknown fields', () => {
+  test('runs the whole-schema checks of schema()', () => {
     expect(field({ type: 'pointer', name: 'p', targetName: 'nowhere' })).toThrow(
-      'Invalid schema at fields[0]: pointer "p" references unknown field "nowhere"'
+      'Invalid schema: p: pointer target "nowhere" does not exist'
+    );
+    expect(() =>
+      schemaFromJson({
+        fields: [
+          { type: 'bool', name: 'a' },
+          { type: 'bool', name: 'a' }
+        ]
+      })
+    ).toThrow('Invalid schema: schema: duplicate field name "a"');
+  });
+
+  test('applies the builders\' default value checks', () => {
+    expect(field({ type: 'int', name: 'x', min: 0, max: 10, defaultValue: 99 })).toThrow(
+      'Invalid schema at fields[0]: int "x": invalid default value'
     );
   });
 });

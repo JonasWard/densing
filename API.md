@@ -13,9 +13,11 @@ The API provides two main categories of functionality:
 
 ### Static Size Analysis (Without Data)
 
-#### `getDenseFieldBitWidthRange(field: DenseField): { min: number; max: number }`
+#### `getDenseFieldBitWidthRange(field: DenseField, schema?: DenseSchema): { min: number; max: number }`
 
 Returns the minimum and maximum number of bits that can be used to encode a field.
+Pass the root `schema` when the field contains `pointer` fields. For a recursive schema `max` is
+`Infinity` (there is no static upper bound) and `min` is the size of the smallest finite value.
 
 ```typescript
 const field = schema.fields.find((f) => f.name === 'optional');
@@ -127,6 +129,23 @@ console.log(sizeInfo);
 
 ## Schema Introspection API
 
+### Path grammar
+
+`getFieldByPath`, `walkDenseSchema` and `getAllDenseSchemaPaths` share one path format: every nested
+field adds its own name as a segment, separated by `.`, and an array segment gets `[]` when the path
+continues into its items.
+
+| Field | Example | Refers to |
+|---|---|---|
+| object | `settings.enabled` | a field of the object |
+| array | `users[].user`, `users[].user.id` | the items field (and its fields) |
+| optional | `maybe.inner` | the wrapped field |
+| union | `action.type`, `action.delay` | the discriminator, or a field of any variant (the first variant wins when several declare the name) |
+| pointer | `expr.left.value` | `getFieldByPath` continues in the pointer's target; the walk does not descend into pointers |
+
+Every path the walk produces resolves with `getFieldByPath`. For compatibility, `getFieldByPath`
+also accepts `list.child` for a field of an array's object items (`list[].item.child`).
+
 ### `getFieldByPath(schema: DenseSchema, path: string): DenseField | null`
 
 Get a field definition by its path.
@@ -137,6 +156,11 @@ const field = getFieldByPath(schema, 'deviceId');
 
 // Nested field
 const nestedField = getFieldByPath(schema, 'network.port');
+
+// Array items, union variants, pointers
+getFieldByPath(schema, 'users[].user.id');
+getFieldByPath(schema, 'action.delay');
+getFieldByPath(schema, 'expr.left.value');
 
 // Returns null if not found
 const missing = getFieldByPath(schema, 'nonexistent'); // null
@@ -152,7 +176,8 @@ const missing = getFieldByPath(schema, 'nonexistent'); // null
 
 ### `walkDenseSchema(schema: DenseSchema, callback: (field, path, parent?) => void, prefix?: string)`
 
-Visit all fields in a schema, including nested ones.
+Visit all fields in a schema, including nested ones. The callback receives each field, its path
+(see the path grammar) and its parent field (`undefined` at the top level).
 
 ```typescript
 walkDenseSchema(schema, (field, path) => {
@@ -190,6 +215,42 @@ console.log(paths);
 - Auto-completion in config UIs
 - Path validation
 - Schema diffing
+
+---
+
+## Schema Validation API
+
+### `validateSchema(schema: DenseSchema): ValidationResult`
+
+Checks the rules that depend on the whole schema. `schema()` runs it and throws on the first error;
+call it yourself for schemas built by hand or loaded from JSON.
+
+- every `pointer` target exists
+- every `pointer` target name is unique among the fields a pointer can refer to (object fields,
+  union variant fields, array items, optional inner fields), so the target never depends on
+  declaration order
+- every `pointer` target has a finite value: a recursive cycle must pass through a union variant, an
+  optional or an array that may be empty
+
+```typescript
+validateSchema({ fields: [object('node', int('v', 0, 3), pointer('next', 'node'))] });
+// { valid: false, errors: [{ path: 'node.next', message: 'pointer target "node" has no finite value: ...' }] }
+```
+
+### `schemaFromJson(input: unknown): DenseSchema`
+
+Loads a schema from its JSON representation: a JSON string or a parsed object, for example the
+output of `JSON.stringify(schema)`. Every field is rebuilt with the builders and the result with
+`schema()`, so the builder checks and `validateSchema` apply, and missing `defaultValue`s are filled
+in. Unknown field types and unknown or mistyped properties are rejected. Errors name the field:
+
+```typescript
+schemaFromJson('{"fields":[{"type":"int","name":"age","min":0,"max":120}]}');
+// { fields: [{ type: 'int', name: 'age', min: 0, max: 120, defaultValue: 0 }] }
+
+schemaFromJson({ fields: [{ type: 'array', name: 'scores', minLength: 0, maxLength: 3, items: { type: 'int', name: 'score', min: 9, max: 1 } }] });
+// throws: Invalid schema at fields[0].items: int "score": max < min
+```
 
 ---
 

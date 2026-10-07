@@ -32,7 +32,7 @@
     "build": "bun build --target=node --minify-syntax ./src/cli.ts --outfile=dist/cli.js",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/**/*.ts",
+    "lint": "eslint src",
     "prepublishOnly": "bun test && bun run build"
   },
   "engines": {
