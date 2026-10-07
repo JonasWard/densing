@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-10-07
+
+Changes since 0.2.3. The `0.3.0` on npm was published from the 0.2.3 code and contains none of the entries below.
 
 ### Fixed
 

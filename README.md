@@ -403,8 +403,8 @@ localStorage.setItem('userPrefs', densing(PrefsSchema, preferences));
 The library includes comprehensive tests:
 
 ```bash
-bun test
-# 348 tests pass
+bun test           # unit, format and cli tests
+bun run test:json  # every test schema survives JSON.stringify -> schemaFromJson
 ```
 
 ## 📖 API Reference
