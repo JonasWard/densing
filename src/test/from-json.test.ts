@@ -15,6 +15,8 @@ import {
   getDefaultData
 } from '../schema';
 import { densing, undensing } from '../densing';
+import { calculateDenseDataSize } from '../api';
+import type { DenseField, DenseSchema } from '../schema-type';
 
 const DeviceConfigSchema = schema(
   int('deviceId', 0, 65535, 7),
@@ -174,5 +176,281 @@ describe('schemaFromJson - errors', () => {
     expect(field({ type: 'int', name: 'x', min: 0, max: 10, defaultValue: 99 })).toThrow(
       'Invalid schema at fields[0]: int "x": invalid default value'
     );
+  });
+});
+
+/**
+ * Every way a schema can recurse. A cycle needs an exit (a union variant, an optional or an array that may be
+ * empty), and a pointer target can be any field a pointer resolves to: top level, inside an object, a union
+ * variant, array items or an optional. Each sample nests at least three levels deep.
+ */
+const recursiveCases: [string, DenseSchema, unknown][] = [
+  [
+    'union variants pointing back to the union (expression)',
+    schema(
+      union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+        number: [int('value', 0, 1000)],
+        add: [pointer('left', 'expr'), pointer('right', 'expr')],
+        multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
+      })
+    ),
+    {
+      expr: {
+        type: 'multiply',
+        left: { type: 'add', left: { type: 'number', value: 5 }, right: { type: 'number', value: 3 } },
+        right: { type: 'number', value: 2 }
+      }
+    }
+  ],
+  [
+    'optional pointer (linked list)',
+    schema(object('node', int('value', 0, 7), optional('next', pointer('nextNode', 'node')))),
+    { node: { value: 1, next: { value: 2, next: { value: 3, next: null } } } }
+  ],
+  [
+    'array that may be empty (n-ary tree)',
+    schema(object('tree', int('value', 0, 15), array('children', 0, 3, pointer('child', 'tree')))),
+    {
+      tree: {
+        value: 1,
+        children: [
+          { value: 2, children: [] },
+          { value: 3, children: [{ value: 4, children: [{ value: 5, children: [] }] }] }
+        ]
+      }
+    }
+  ],
+  [
+    'array of at least one, ended by a union variant',
+    schema(
+      union('tree', enumeration('kind', ['leaf', 'branch']), {
+        leaf: [int('value', 0, 9)],
+        branch: [array('children', 1, 3, pointer('child', 'tree'))]
+      })
+    ),
+    {
+      tree: {
+        kind: 'branch',
+        children: [
+          { kind: 'leaf', value: 1 },
+          { kind: 'branch', children: [{ kind: 'branch', children: [{ kind: 'leaf', value: 9 }] }] }
+        ]
+      }
+    }
+  ],
+  [
+    'mutual recursion between top-level fields',
+    schema(
+      union('a', enumeration('t', ['toB', 'stop']), { toB: [pointer('b', 'bNode')], stop: [] }),
+      object('bNode', bool('flag'), union('next', enumeration('k', ['toA', 'end']), { toA: [pointer('back', 'a')], end: [] }))
+    ),
+    {
+      a: { t: 'toB', b: { flag: true, next: { k: 'toA', back: { t: 'toB', b: { flag: false, next: { k: 'end' } } } } } },
+      bNode: { flag: false, next: { k: 'toA', back: { t: 'stop' } } }
+    }
+  ],
+  [
+    'target nested inside an object',
+    schema(
+      object(
+        'doc',
+        int('version', 1, 3),
+        object('section', enumeration('level', ['h1', 'h2', 'h3']), array('subsections', 0, 3, pointer('sub', 'section')))
+      )
+    ),
+    {
+      doc: {
+        version: 2,
+        section: {
+          level: 'h1',
+          subsections: [{ level: 'h2', subsections: [{ level: 'h3', subsections: [] }] }, { level: 'h2', subsections: [] }]
+        }
+      }
+    }
+  ],
+  [
+    'target defined inside a union variant',
+    schema(
+      union('shape', enumeration('type', ['box', 'group']), {
+        box: [int('size', 0, 10)],
+        group: [object('groupBody', int('id', 0, 99), optional('inner', pointer('innerGroup', 'groupBody')))]
+      })
+    ),
+    { shape: { type: 'group', groupBody: { id: 1, inner: { id: 2, inner: { id: 3, inner: null } } } } }
+  ],
+  [
+    'target is the item field of an array',
+    schema(array('list', 0, 3, object('item', int('id', 0, 9), optional('nested', pointer('nestedItem', 'item'))))),
+    { list: [{ id: 1, nested: { id: 2, nested: { id: 3, nested: null } } }, { id: 4, nested: null }] }
+  ],
+  [
+    "target is an optional's inner field",
+    schema(optional('maybe', object('inner', bool('on'), optional('again', pointer('innerAgain', 'inner'))))),
+    { maybe: { on: true, again: { on: false, again: { on: true, again: null } } } }
+  ],
+  [
+    'json-like value: pointers inside arrays and objects inside variants',
+    schema(
+      union('json', enumeration('type', ['null', 'bool', 'number', 'array', 'object']), {
+        null: [],
+        bool: [bool('value')],
+        number: [fixed('value', -100, 100, 0.5)],
+        array: [array('items', 0, 4, pointer('item', 'json'))],
+        object: [array('entries', 0, 3, object('entry', enumeration('key', ['a', 'b', 'c']), pointer('value', 'json')))]
+      })
+    ),
+    {
+      json: {
+        type: 'object',
+        entries: [
+          { key: 'a', value: { type: 'array', items: [{ type: 'number', value: -2.5 }, { type: 'null' }] } },
+          { key: 'b', value: { type: 'object', entries: [{ key: 'c', value: { type: 'bool', value: true } }] } }
+        ]
+      }
+    }
+  ],
+  [
+    'several recursive structures in one schema, one referring to another',
+    schema(
+      union('expr', enumeration('type', ['number', 'neg']), { number: [int('value', 0, 9)], neg: [pointer('inner', 'expr')] }),
+      object('list', pointer('head', 'expr'), optional('tail', pointer('rest', 'list'))),
+      object('tree', array('children', 0, 2, pointer('child', 'tree')))
+    ),
+    {
+      expr: { type: 'neg', inner: { type: 'neg', inner: { type: 'number', value: 4 } } },
+      list: { head: { type: 'number', value: 1 }, tail: { head: { type: 'neg', inner: { type: 'number', value: 2 } }, tail: null } },
+      tree: { children: [{ children: [{ children: [] }] }, { children: [] }] }
+    }
+  ],
+  [
+    'pointer whose target is another pointer',
+    schema(
+      union('expr', enumeration('type', ['number', 'add']), {
+        number: [int('value', 0, 9)],
+        add: [pointer('left', 'expr'), pointer('right', 'left')]
+      })
+    ),
+    {
+      expr: {
+        type: 'add',
+        left: { type: 'add', left: { type: 'number', value: 1 }, right: { type: 'number', value: 2 } },
+        right: { type: 'add', left: { type: 'number', value: 3 }, right: { type: 'number', value: 4 } }
+      }
+    }
+  ]
+];
+
+describe('schemaFromJson - recursion', () => {
+  test.each(recursiveCases)('%s', (_name, original, data) => {
+    const loaded = jsonRoundTrip(original);
+    expect(loaded).toEqual(original);
+
+    const encoded = densing(original, data);
+    expect(densing(loaded, data)).toBe(encoded);
+    expect(undensing(loaded, encoded)).toEqual(data as any);
+
+    const defaults = getDefaultData(original);
+    expect(getDefaultData(loaded)).toEqual(defaults);
+    expect(densing(loaded, defaults)).toBe(densing(original, defaults));
+
+    expect(calculateDenseDataSize(loaded, data)).toEqual(calculateDenseDataSize(original, data));
+  });
+
+  // hand written: no defaults, so these rely on schemaFromJson filling them in like the builders
+  const handWritten: [string, unknown, number][] = [
+    [
+      'expression',
+      {
+        fields: [
+          {
+            type: 'union',
+            name: 'expr',
+            discriminator: { type: 'enum', name: 'type', options: ['number', 'add', 'multiply'] },
+            variants: {
+              number: [{ type: 'int', name: 'value', min: 0, max: 1000 }],
+              add: [
+                { type: 'pointer', name: 'left', targetName: 'expr' },
+                { type: 'pointer', name: 'right', targetName: 'expr' }
+              ],
+              multiply: [
+                { type: 'pointer', name: 'left', targetName: 'expr' },
+                { type: 'pointer', name: 'right', targetName: 'expr' }
+              ]
+            }
+          }
+        ]
+      },
+      0
+    ],
+    [
+      'linked list',
+      {
+        fields: [
+          {
+            type: 'object',
+            name: 'node',
+            fields: [
+              { type: 'int', name: 'value', min: 0, max: 7 },
+              { type: 'optional', name: 'next', field: { type: 'pointer', name: 'nextNode', targetName: 'node' } }
+            ]
+          }
+        ]
+      },
+      1
+    ],
+    [
+      'n-ary tree',
+      {
+        fields: [
+          {
+            type: 'object',
+            name: 'tree',
+            fields: [
+              { type: 'int', name: 'value', min: 0, max: 15 },
+              { type: 'array', name: 'children', minLength: 0, maxLength: 3, items: { type: 'pointer', name: 'child', targetName: 'tree' } }
+            ]
+          }
+        ]
+      },
+      2
+    ]
+  ];
+
+  test.each(handWritten)('hand written %s loads like the builder version', (_name, json, index) => {
+    const [, original, data] = recursiveCases[index];
+    const loaded = schemaFromJson(json);
+    expect(loaded).toEqual(original);
+    expect(densing(loaded, data)).toBe(densing(original, data));
+    expect(getDefaultData(loaded)).toEqual(getDefaultData(original));
+  });
+
+  // built without `schema()`, which would throw before they could be stringified
+  const invalid: [string, DenseField[], string][] = [
+    ['a pointer to itself', [pointer('p', 'p')], 'Invalid schema: p: pointer target "p" has no finite value'],
+    [
+      'an object that always recurses',
+      [object('n', int('v', 0, 3), pointer('next', 'n'))],
+      'Invalid schema: n.next: pointer target "n" has no finite value'
+    ],
+    [
+      'an array that can never be empty',
+      [array('list', 1, 3, pointer('item', 'list'))],
+      'Invalid schema: list[].item: pointer target "list" has no finite value'
+    ],
+    [
+      'a union whose every variant recurses',
+      [union('u', enumeration('t', ['a', 'b']), { a: [pointer('x', 'u')], b: [pointer('y', 'u')] })],
+      'Invalid schema: u.x: pointer target "u" has no finite value'
+    ],
+    ['a missing target', [object('o', pointer('p', 'nope'))], 'Invalid schema: o.p: pointer target "nope" does not exist'],
+    [
+      'an ambiguous target',
+      [object('a', object('node', int('v', 0, 1))), object('b', object('node', int('w', 0, 1))), pointer('p', 'node')],
+      'Invalid schema: p: pointer target "node" is ambiguous, it matches a.node, b.node'
+    ]
+  ];
+
+  test.each(invalid)('rejects %s', (_name, fields, message) => {
+    expect(() => schemaFromJson(JSON.stringify({ fields }))).toThrow(message);
   });
 });
