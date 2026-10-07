@@ -38,6 +38,7 @@
 ### Added
 
 - **`schemaFromJson(json)`**: load a schema from its JSON representation (a JSON string or a parsed object, e.g. the output of `JSON.stringify(schema)`). Every field is rebuilt with the builders and the result with `schema()`, so the same validation applies and missing defaults are filled in. Unknown field types and unknown or mistyped properties are rejected too, and errors name the field, e.g. `Invalid schema at fields[2].items: int "score": max < min`
+  - `bun run test:json` (also in CI) runs the whole test suite and checks that every schema it defines survives `JSON.stringify` → `schemaFromJson` and encodes and decodes the same
 - **`densing-cli`**: new command line package in `cli/`, released with the same version as `densing` (which it bundles). Commands: `encode`, `decode`, `validate`, `size`, `defaults`, `types`, `paths`, `schema`; schemas are read as JSON, data from files, `--data` or stdin, and every base is supported
 - **`customBase(alphabet)`**: a validated custom alphabet that is never mistaken for a named base (`customBase('binary')` is the six characters `b,i,n,a,r,y`). Plain strings keep working ([#16](https://github.com/JonasWard/densing/issues/16))
 - **`validateSchema(schema)`**, run by `schema()`: pointer targets must exist, be unique among the fields a pointer can refer to, and have a finite value (a recursion needs a union variant, optional or possibly-empty array as a way out; `pointer('p', 'p')` used to loop forever) ([#13](https://github.com/JonasWard/densing/issues/13))

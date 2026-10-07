@@ -17,6 +17,7 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - run: bun test
+      - run: bun run test:json
       - run: bun run build
       - run: bun run lint
         working-directory: cli
