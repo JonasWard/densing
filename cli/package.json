@@ -1,5 +1,5 @@
 {
-  "name": "@densing/cli",
+  "name": "densing-cli",
   "version": "0.4.0",
   "description": "Command line interface for densing: bit-pack JSON data into compact URL / QR code safe strings.",
   "author": "Jonas Ward",
@@ -34,9 +34,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/**/*.ts",
     "prepublishOnly": "bun test && bun run build"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "engines": {
     "node": ">=18.3.0"

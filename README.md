@@ -342,10 +342,10 @@ densing(ExpressionSchema, data); // "kAUAMAI" (190 bits, 7 base64 chars vs JSON 
 
 ## 💻 Command Line
 
-The [`@densing/cli`](./cli/README.md) package lets you encode, decode, validate, and analyse data from the terminal, using a schema saved as JSON:
+The [`densing-cli`](./cli/README.md) package lets you encode, decode, validate, and analyse data from the terminal, using a schema saved as JSON:
 
 ```bash
-npm install -g @densing/cli
+npm install -g densing-cli
 
 densing encode -s device.json data.json   # Cqnu
 densing decode -s device.json Cqnu        # {"deviceId": 42, ...}

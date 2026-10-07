@@ -1,14 +1,14 @@
-# @densing/cli
+# densing-cli
 
 Command line interface for [densing](https://github.com/JonasWard/densing): bit-pack JSON data into compact, URL and QR code safe strings, straight from your terminal.
 
 ```bash
-npm install -g @densing/cli
+npm install -g densing-cli
 # or run it without installing
-npx @densing/cli --help
+npx densing-cli --help
 ```
 
-The installed command is called `densing`. It runs on Node.js 18.3 or newer and has no dependencies, because the matching densing version is bundled in. `@densing/cli@0.4.0` contains `densing@0.4.0`.
+The installed command is called `densing`. It runs on Node.js 18.3 or newer and has no dependencies, because the matching densing version is bundled in. `densing-cli@0.4.0` contains `densing@0.4.0`.
 
 ## Schemas
 
@@ -113,4 +113,4 @@ bun run build     # bundle into dist/cli.js
 node dist/cli.js --help
 ```
 
-To release, give `densing` and `@densing/cli` the same version, then run `bun publish` (or `npm publish`) in both the repository root and `cli/`. Scoped packages are published with public access (see `publishConfig`), which requires the `densing` organisation on npm.
+To release, give `densing` and `densing-cli` the same version, then run `bun publish` (or `npm publish`) in both the repository root and `cli/`.
