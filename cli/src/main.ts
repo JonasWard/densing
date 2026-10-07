@@ -1,3 +1,4 @@
+import { isatty } from 'node:tty';
 import { parseArgs } from 'node:util';
 import { version } from '../package.json';
 import {
@@ -54,7 +55,9 @@ const defaultIO: CliIO = {
   stdout: (text) => process.stdout.write(text + '\n'),
   stderr: (text) => process.stderr.write(text + '\n'),
   readStdin,
-  stdinIsTTY: Boolean(process.stdin.isTTY)
+  // not `process.stdin.isTTY`: that creates the stdin stream, and on bun 1.3 piped input is lost when the
+  // stream is created before an await and read after it
+  stdinIsTTY: isatty(0)
 };
 
 const parse = (argv: string[]) => {
