@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0] - 2026-10-07
+
+### Added
+
+- **`schemaFromJson`**: loads a schema from its JSON representation (a JSON string or a parsed object, for example the output of `JSON.stringify(schema)`)
+  - Every field is rebuilt with the builder functions, so the same validation applies and missing defaults are filled in
+  - Unknown field types, unknown or mistyped properties, invalid enum fields in unions and enum arrays, and pointers to unknown fields are rejected
+  - Errors include the path of the offending field, e.g. `Invalid schema at fields[2].items: int "score": max < min`
+- **`resolveFieldByName`**: the helper used to resolve pointer targets is now exported
+- **`@densing/cli`**: new command line package in `cli/`, released with the same version as `densing`
+  - Commands: `encode`, `decode`, `validate`, `size`, `defaults`, `types`, `paths`, `schema`
+  - Reads schemas as JSON files, and data from files, `--data` or stdin
+  - Supports all bases (`--base base64url | baseQRCode45UrlSafe | binary | <custom alphabet>`)
+
 ## [0.2.3] - 2026-02-12
 
 ### Removed

@@ -268,6 +268,24 @@ console.log(types);
 // }
 ```
 
+### Schemas as JSON
+
+Schemas are plain data, so `JSON.stringify(schema)` gives you a portable JSON version, which you can store, send, or pass to the [cli](#-command-line). To load it back, use `schemaFromJson`. It accepts a JSON string or a parsed object, runs the same checks as the builder functions, and fills in missing defaults:
+
+```typescript
+import { schemaFromJson } from 'densing';
+
+const json = JSON.stringify(MySchema);
+const loaded = schemaFromJson(json); // equal to MySchema
+
+// hand written schemas may leave out the defaults
+schemaFromJson({ fields: [{ type: 'int', name: 'age', min: 0, max: 120 }] });
+// { fields: [{ type: 'int', name: 'age', min: 0, max: 120, defaultValue: 0 }] }
+
+schemaFromJson({ fields: [{ type: 'int', name: 'age', min: 120, max: 0 }] });
+// throws: Invalid schema at fields[0]: int "age": max < min
+```
+
 ### Custom Bases
 
 Use any character set for encoding:
@@ -320,6 +338,18 @@ const data = {
 };
 
 densing(ExpressionSchema, data); // "kAUAMAI" (190 bits, 7 base64 chars vs JSON 157 chars, -96%)
+```
+
+## 💻 Command Line
+
+The [`@densing/cli`](./cli/README.md) package lets you encode, decode, validate, and analyse data from the terminal, using a schema saved as JSON:
+
+```bash
+npm install -g @densing/cli
+
+densing encode -s device.json data.json   # Cqnu
+densing decode -s device.json Cqnu        # {"deviceId": 42, ...}
+densing size -s device.json               # static bit sizes of the schema
 ```
 
 ## 📊 Use Cases
@@ -402,6 +432,7 @@ For detailed API documentation, see [API.md](./API.md).
 - `walkDenseSchema(schema, callback)` - Visit all fields
 - `getAllDenseSchemaPaths(schema)` - Get all field paths
 - `generateTypes(schema, typeName?)` - Generate TypeScript types
+- `schemaFromJson(json)` - Load and validate a schema from its JSON representation
 
 ## 🎯 Performance
 

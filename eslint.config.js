@@ -3,14 +3,16 @@ import tsparser from '@typescript-eslint/parser';
 
 export default [
   {
-    files: ['src/**/*.ts'],
-    ignores: ['src/test/**/*.ts', 'src/meta/**/*.ts'],
+    files: ['src/**/*.ts', 'cli/src/**/*.ts'],
+    ignores: ['src/test/**/*.ts', 'src/meta/**/*.ts', 'cli/src/test/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
-        project: './tsconfig.json'
+        // nearest tsconfig.json, so the cli uses its own
+        project: true,
+        tsconfigRootDir: import.meta.dirname
       }
     },
     plugins: {
@@ -33,7 +35,7 @@ export default [
     }
   },
   {
-    files: ['src/test/**/*.ts'],
+    files: ['src/test/**/*.ts', 'cli/src/test/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
@@ -54,6 +56,6 @@ export default [
     }
   },
   {
-    ignores: ['dist/**', 'node_modules/**', '*.js', 'benchmark.ts']
+    ignores: ['dist/**', 'cli/dist/**', 'node_modules/**', '*.js', 'benchmark.ts']
   }
 ];

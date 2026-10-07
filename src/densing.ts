@@ -3,7 +3,7 @@ import { BitWriter, BitReader, BaseType } from './helpers';
 import { DenseSchema, DenseField, ConstantBitWidthField } from './schema-type';
 
 // Helper to resolve a field by name in a schema (for pointer support)
-const resolveFieldByName = (schema: DenseSchema, targetName: string): DenseField | undefined => {
+export const resolveFieldByName = (schema: DenseSchema, targetName: string): DenseField | undefined => {
   const findField = (fields: DenseField[], visited = new Set<DenseField>()): DenseField | undefined => {
     for (const field of fields) {
       if (visited.has(field)) continue; // Prevent infinite loops

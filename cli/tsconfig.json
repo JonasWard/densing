@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "rootDir": "..",
+    "composite": false,
+    "resolveJsonModule": true,
+    "paths": {
+      "densing": ["../src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": []
+}
