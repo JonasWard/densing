@@ -1,6 +1,6 @@
 {
   "name": "densing",
-  "version": "0.2.3",
+  "version": "0.4.0",
   "description": "Bit and base level packing for TypeScript. Perfect for URLs, QR codes, and other storage constrained contexts.",
   "author": "Jonas Ward",
   "license": "MIT",
@@ -40,8 +40,10 @@
     "postbuild": "rimraf tsconfig.types.tsbuildinfo",
     "benchmark": "bun run benchmark.ts",
     "test": "bun test",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
+    "test:json": "bun test --preload ./src/test/json-round-trip.preload.ts",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "typecheck": "tsc -p tsconfig.check.json",
     "prepublishOnly": "bun test && bun run build"
   },
   "devDependencies": {

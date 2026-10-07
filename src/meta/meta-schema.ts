@@ -1,6 +1,6 @@
 import { DenseField, DenseSchema, FieldTypes } from '@/schema-type';
 import { bool, enumArray, enumeration, object, optional, union } from '../schema/builder';
-import { walkDenseSchema } from '..';
+import { walkDenseSchema } from '../api';
 
 /**
  * numeric values

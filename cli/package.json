@@ -1,0 +1,41 @@
+{
+  "name": "densing-cli",
+  "version": "0.4.0",
+  "description": "Command line interface for densing: bit-pack JSON data into compact URL / QR code safe strings.",
+  "author": "Jonas Ward",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JonasWard/densing.git",
+    "directory": "cli"
+  },
+  "keywords": [
+    "densing",
+    "cli",
+    "serialization",
+    "compression",
+    "bit-packing",
+    "base64",
+    "url-encoding",
+    "qr-code"
+  ],
+  "type": "module",
+  "bin": {
+    "densing": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build --target=node --minify-syntax ./src/cli.ts --outfile=dist/cli.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "prepublishOnly": "bun test && bun run build"
+  },
+  "engines": {
+    "node": ">=18.3.0"
+  }
+}

@@ -217,6 +217,10 @@ if (!result.valid) {
 }
 ```
 
+`densing` applies the same rules and throws a `DenseEncodeError` (with the same `path`) for the first
+invalid value, so invalid data never turns into a valid-looking payload. Use `validate` when you want
+every error at once, e.g. to show them in a form.
+
 ### Size Analysis
 
 See exactly how your data will be encoded:
@@ -268,6 +272,24 @@ console.log(types);
 // }
 ```
 
+### Schemas as JSON
+
+Schemas are plain data, so `JSON.stringify(schema)` gives you a portable JSON version, which you can store, send, or pass to the [cli](#-command-line). To load it back, use `schemaFromJson`. It accepts a JSON string or a parsed object, runs the same checks as the builder functions and `schema()`, and fills in missing defaults:
+
+```typescript
+import { schemaFromJson } from 'densing';
+
+const json = JSON.stringify(MySchema);
+const loaded = schemaFromJson(json); // equal to MySchema
+
+// hand written schemas may leave out the defaults
+schemaFromJson({ fields: [{ type: 'int', name: 'age', min: 0, max: 120 }] });
+// { fields: [{ type: 'int', name: 'age', min: 0, max: 120, defaultValue: 0 }] }
+
+schemaFromJson({ fields: [{ type: 'int', name: 'age', min: 120, max: 0 }] });
+// throws: Invalid schema at fields[0]: int "age": max < min
+```
+
 ### Custom Bases
 
 Use any character set for encoding:
@@ -280,30 +302,30 @@ densing(schema, data); // "VA" (example)
 densing(schema, data, 'binary'); // "0101010"
 
 // Custom base (hexadecimal)
-densing(schema, data, '0123456789ABCDEF'); // "54"
+const hex = customBase('0123456789ABCDEF');
+densing(schema, data, hex); // "54"
 
 // Decode with same base
 undensing(schema, encoded, 'binary');
 ```
 
+`customBase` checks the alphabet (at least two characters, no duplicates, no characters outside
+the Basic Multilingual Plane) and can never be confused with a named base. A plain string still works
+as a custom alphabet, but one that equals a base name (such as `'binary'`) selects that base.
+
 ### Recursive Structures
 
-Define recursive data structures with `createRecursiveUnion`:
+Define recursive data structures with `pointer`, which refers to another field by name:
 
 ```typescript
-import { schema, createRecursiveUnion, int, enumeration } from 'densing';
+import { schema, union, pointer, int, enumeration } from 'densing';
 
 const ExpressionSchema = schema(
-  createRecursiveUnion(
-    'expr',
-    ['number', 'add', 'multiply'],
-    (recurse) => ({
-      number: [int('value', 0, 1000)],
-      add: [recurse('left'), recurse('right')],
-      multiply: [recurse('left'), recurse('right')]
-    }),
-    5 // max depth
-  )
+  union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+    number: [int('value', 0, 1000)],
+    add: [pointer('left', 'expr'), pointer('right', 'expr')],
+    multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
+  })
 );
 
 // Encode: (5 + 3) * 2
@@ -319,7 +341,24 @@ const data = {
   }
 };
 
-densing(ExpressionSchema, data); // "kAUAMAI" (190 bits, 7 base64 chars vs JSON 157 chars, -96%)
+densing(ExpressionSchema, data); // "kAUAMAI" (40 bits, 7 base64 chars vs JSON 157 chars, -96%)
+```
+
+Pointer targets must be unique within the schema and every recursion needs a way out (a union variant,
+an optional or an array that may be empty); `schema()` checks both. There is no depth limit: each
+node costs its discriminator plus its own fields. Because a recursive
+schema has no static maximum size, `analyzeDenseSchemaSize` reports an unbounded maximum for it.
+
+## 💻 Command Line
+
+The [`densing-cli`](./cli/README.md) package lets you encode, decode, validate, and analyse data from the terminal, using a schema saved as JSON:
+
+```bash
+npm install -g densing-cli
+
+densing encode -s device.json data.json   # Cqnu
+densing decode -s device.json Cqnu        # {"deviceId": 42, ...}
+densing size -s device.json               # static bit sizes of the schema
 ```
 
 ## 📊 Use Cases
@@ -364,21 +403,24 @@ localStorage.setItem('userPrefs', densing(PrefsSchema, preferences));
 The library includes comprehensive tests:
 
 ```bash
-bun test
-# 348 tests pass
+bun test           # unit, format and cli tests
+bun run test:json  # every test schema survives JSON.stringify -> schemaFromJson
 ```
 
 ## 📖 API Reference
 
-For detailed API documentation, see [API.md](./API.md).
+For detailed API documentation, see [API.md](./API.md). The encoding itself is specified in [FORMAT.md](./FORMAT.md).
 
 ### Core Functions
 
 - `schema(...fields)` - Define a schema
 - `densing(schema, data, base?)` - Encode data
-- `undensing(schema, encoded, base?)` - Decode data
+- `undensing(schema, encoded, base?)` - Decode data (throws `DenseDecodeError` for strings the encoder cannot produce, e.g. edited or truncated URLs)
 - `validate(schema, data)` - Validate data
 - `getDefaultData(schema)` - Generate default values
+- `validateSchema(schema)` - Check pointer targets (run by `schema()`)
+- `schemaFromJson(json)` - Load and validate a schema from its JSON representation
+- `customBase(alphabet)` - A validated custom alphabet
 
 ### Field Builders
 

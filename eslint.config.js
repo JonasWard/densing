@@ -3,14 +3,16 @@ import tsparser from '@typescript-eslint/parser';
 
 export default [
   {
-    files: ['src/**/*.ts'],
-    ignores: ['src/test/**/*.ts', 'src/meta/**/*.ts'],
+    files: ['src/**/*.ts', 'cli/src/**/*.ts'],
+    ignores: ['src/test/**/*.ts', 'src/meta/**/*.ts', 'cli/src/test/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
-        project: './tsconfig.json'
+        // nearest tsconfig.json, so the cli uses its own
+        project: true,
+        tsconfigRootDir: import.meta.dirname
       }
     },
     plugins: {
@@ -29,11 +31,27 @@ export default [
       '@typescript-eslint/no-non-null-assertion': 'warn',
       'no-console': 'off',
       'prefer-const': 'warn',
-      'no-var': 'error'
+      'no-var': 'error',
+      'no-shadow': 'off',
+      '@typescript-eslint/no-shadow': 'error'
     }
   },
   {
-    files: ['src/test/**/*.ts'],
+    // The codec kernel (bit stream, alphabets, radix conversion) must not depend on the schema layer
+    files: ['src/codec/**/*.ts', 'src/encoding/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['**/schema', '**/schema/**', '**/schema-type', '**/densing', '**/api', '**/values', '**/index'], message: 'codec/ and encoding/ must not depend on the schema layer' }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    files: ['src/test/**/*.ts', 'cli/src/test/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
@@ -54,6 +72,6 @@ export default [
     }
   },
   {
-    ignores: ['dist/**', 'node_modules/**', '*.js', 'benchmark.ts']
+    ignores: ['dist/**', 'cli/dist/**', 'node_modules/**', '*.js', 'benchmark.ts']
   }
 ];

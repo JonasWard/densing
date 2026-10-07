@@ -1,4 +1,6 @@
-import { DenseSchema, DenseField } from '../schema-type';
+import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
+import { constantFieldValueError, lengthError } from '../values';
+import { resolveDenseFieldByName } from './resolve';
 
 export interface ValidationError {
   path: string;
@@ -10,11 +12,26 @@ export interface ValidationResult {
   errors: ValidationError[];
 }
 
+const pushLengthError = (
+  length: number,
+  minLength: number,
+  maxLength: number,
+  path: string,
+  errors: ValidationError[]
+) => {
+  const message = lengthError(length, minLength, maxLength);
+  if (message) errors.push({ path, message });
+};
+
+/**
+ * Check data against a schema without encoding it. Uses the same rules as `densing`, which throws a
+ * `DenseEncodeError` for the first value that would fail here.
+ */
 export const validate = (schema: DenseSchema, data: any): ValidationResult => {
   const errors: ValidationError[] = [];
 
   for (const field of schema.fields) {
-    validateField(field, data[field.name], field.name, errors);
+    validateField(field, data[field.name], field.name, errors, schema);
   }
 
   return {
@@ -23,14 +40,24 @@ export const validate = (schema: DenseSchema, data: any): ValidationResult => {
   };
 };
 
-export const validateField = (field: DenseField, value: any, path: string, errors: ValidationError[]): any => {
+/**
+ * Validate one value against a field, appending to `errors`
+ * @param schema - the root schema; needed to follow `pointer` fields (without it they are not checked)
+ */
+export const validateField = (
+  field: DenseField,
+  value: any,
+  path: string,
+  errors: ValidationError[],
+  schema?: DenseSchema
+): void => {
   // For optional fields, undefined/null is valid
   if (field.type === 'optional') {
     if (value === undefined || value === null) {
       return; // Optional fields can be undefined
     }
     // If present, validate the inner field
-    validateField(field.field, value, path, errors);
+    validateField(field.field, value, path, errors, schema);
     return;
   }
 
@@ -44,60 +71,13 @@ export const validateField = (field: DenseField, value: any, path: string, error
 
   switch (field.type) {
     case 'bool':
-      if (typeof value !== 'boolean') {
-        errors.push({ path, message: 'expected boolean' });
-      }
-      return;
-
     case 'int':
-      if (!Number.isInteger(value)) {
-        errors.push({ path, message: 'expected integer' });
-        return;
-      }
-      if (value < field.min || value > field.max) {
-        errors.push({
-          path,
-          message: `value ${value} out of range [${field.min}, ${field.max}]`
-        });
-      }
-      return;
-
-    case 'fixed': {
-      if (typeof value !== 'number') {
-        errors.push({ path, message: 'expected number' });
-        return;
-      }
-      const scale = 1 / field.precision;
-      const scaled = (value - field.min) * scale;
-
-      if (value < field.min || value > field.max) {
-        errors.push({
-          path,
-          message: `value ${value} out of range [${field.min}, ${field.max}]`
-        });
-      } else if (!Number.isInteger(Math.round(scaled))) {
-        errors.push({
-          path,
-          message: `value ${value} does not align with precision ${field.precision}`
-        });
-      }
+    case 'fixed':
+    case 'enum': {
+      const error = constantFieldValueError(field, value);
+      if (error) errors.push({ path, message: error });
       return;
     }
-
-    case 'enum':
-      if (typeof value !== 'string') {
-        errors.push({ path, message: 'expected string for enum value' });
-        return;
-      }
-
-      if (!field.options.includes(value)) {
-        const optionsStr = field.options.join(', ');
-        errors.push({
-          path,
-          message: `invalid enum value ${value}, expected one of [${optionsStr}]`
-        });
-      }
-      return;
 
     case 'array':
       if (!Array.isArray(value)) {
@@ -105,21 +85,9 @@ export const validateField = (field: DenseField, value: any, path: string, error
         return;
       }
 
-      if (value.length < field.minLength) {
-        errors.push({
-          path,
-          message: `array length ${value.length} is less than minLength ${field.minLength}`
-        });
-      }
+      pushLengthError(value.length, field.minLength, field.maxLength, path, errors);
 
-      if (value.length > field.maxLength) {
-        errors.push({
-          path,
-          message: `array length ${value.length} exceeds maxLength ${field.maxLength}`
-        });
-      }
-
-      value.forEach((item, i) => validateField(field.items, item, `${path}[${i}]`, errors));
+      value.forEach((item, i) => validateField(field.items, item, `${path}[${i}]`, errors, schema));
       return;
 
     case 'union': {
@@ -150,7 +118,7 @@ export const validateField = (field: DenseField, value: any, path: string, error
       }
 
       for (const f of variantFields) {
-        validateField(f, value[f.name], `${path}.${f.name}`, errors);
+        validateField(f, value[f.name], `${path}.${f.name}`, errors, schema);
       }
 
       return;
@@ -162,31 +130,12 @@ export const validateField = (field: DenseField, value: any, path: string, error
         return;
       }
 
-      // Check minimum length
-      if (value.length < field.minLength) {
-        errors.push({
-          path,
-          message: `array length ${value.length} is less than minLength ${field.minLength}`
-        });
-      }
-
-      // Check maximum length
-      if (value.length > field.maxLength) {
-        errors.push({
-          path,
-          message: `array length ${value.length} exceeds maxLength ${field.maxLength}`
-        });
-      }
+      pushLengthError(value.length, field.minLength, field.maxLength, path, errors);
 
       // Check all elements are valid enum values
       value.forEach((v, i) => {
-        if (typeof v !== 'string' || !field.enum.options.includes(v)) {
-          const optionsStr = field.enum.options.join(', ');
-          errors.push({
-            path: `${path}[${i}]`,
-            message: `invalid enum value ${v}, expected one of [${optionsStr}]`
-          });
-        }
+        const error = constantFieldValueError(field.enum, v);
+        if (error) errors.push({ path: `${path}[${i}]`, message: error });
       });
       return;
 
@@ -197,17 +146,23 @@ export const validateField = (field: DenseField, value: any, path: string, error
       }
 
       for (const f of field.fields) {
-        validateField(f, value[f.name], `${path}.${f.name}`, errors);
+        validateField(f, value[f.name], `${path}.${f.name}`, errors, schema);
       }
       return;
     }
 
     case 'pointer': {
-      // For pointers, we need the schema context to resolve the target
-      // This would require passing schema through validateField
-      // For now, we just validate that the value exists
-      // The actual type validation will happen during encoding
+      if (!schema) return; // cannot resolve without the root schema
+      const target = resolveDenseFieldByName(schema, field.targetName);
+      if (!target) {
+        errors.push({ path, message: `pointer target "${field.targetName}" does not exist` });
+        return;
+      }
+      validateField(target, value, path, errors, schema);
       return;
     }
+
+    default:
+      assertNeverDenseField(field);
   }
 };
