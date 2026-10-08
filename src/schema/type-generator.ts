@@ -1,4 +1,5 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
+import { PRESETS_KEY, presetNames, schemaDefinitions } from './definitions';
 
 /**
  * Generate TypeScript type definitions from a schema
@@ -7,13 +8,22 @@ export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'Schem
   const types: string[] = [];
   const processedTypes = new Set<string>();
 
-  // Generate the root type
-  const rootFields = schema.fields
-    .map((field) => {
+  // Generate the root type, starting with the presets of the numeric definitions
+  const definitions = schemaDefinitions(schema);
+  const presetsField = definitions.length
+    ? [
+        `  ${PRESETS_KEY}?: {\n${definitions
+          .map((d) => `    ${d.name}?: ${presetNames(d).map((name) => `'${name}'`).join(' | ')};`)
+          .join('\n')}\n  };`
+      ]
+    : [];
+  const rootFields = [
+    ...presetsField,
+    ...schema.fields.map((field) => {
       const fieldType = getFieldType(field, types, processedTypes);
       return `  ${field.name}: ${fieldType};`;
     })
-    .join('\n');
+  ].join('\n');
 
   const rootType = `export interface ${rootTypeName} {\n${rootFields}\n}`;
 
@@ -31,6 +41,7 @@ const getFieldType = (field: DenseField, types: string[], processedTypes: Set<st
 
     case 'int':
     case 'fixed':
+    case 'reference_numeric':
       return 'number';
 
     case 'enum':

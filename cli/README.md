@@ -8,7 +8,7 @@ npm install -g densing-cli
 npx densing-cli --help
 ```
 
-The installed command is called `densing`. It runs on Node.js 18.3 or newer and has no dependencies, because the matching densing version is bundled in. `densing-cli@0.4.0` contains `densing@0.4.0`.
+The installed command is called `densing`. It runs on Node.js 18.3 or newer and has no dependencies, because the matching densing version is bundled in. `densing-cli@0.4.1` contains `densing@0.4.1`.
 
 ## Schemas
 

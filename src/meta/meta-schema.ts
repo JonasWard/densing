@@ -43,6 +43,8 @@ const walkDenseSchemaField = (field: DenseField, namesAndOptions: Set<string>) =
     field.enum.options.forEach((option) => namesAndOptions.add(option));
   } else if (field.type === 'pointer') {
     namesAndOptions.add(field.targetName);
+  } else if (field.type === 'reference_numeric') {
+    namesAndOptions.add(field.ref);
   } else if (field.type === 'object') {
     field.fields.forEach((f) => walkDenseSchemaField(f, namesAndOptions));
   } else if (field.type === 'array') {
@@ -61,6 +63,10 @@ const walkDenseSchemaField = (field: DenseField, namesAndOptions: Set<string>) =
 
 export const getAllUniqueNamesAndOptions = (schema: DenseSchema): Set<string> => {
   const namesAndOptions = new Set<string>();
+  schema.definitions?.forEach((definition) => {
+    namesAndOptions.add(definition.name);
+    Object.keys(definition.presets).forEach((preset) => namesAndOptions.add(preset));
+  });
   walkDenseSchema(schema, (field) => walkDenseSchemaField(field, namesAndOptions));
   return namesAndOptions;
 };
@@ -78,7 +84,8 @@ const metaObjectType = union('metaObjectType', enumeration('type', FieldTypes), 
   union: [],
   optional: [],
   object: [],
-  pointer: []
+  pointer: [],
+  reference_numeric: []
 } as Record<DenseField['type'], DenseField[]>);
 
 // ToDo for text

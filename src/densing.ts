@@ -4,6 +4,15 @@ import { BaseSpec } from './encoding/alphabets';
 import { bitsForDigits } from './encoding/radix';
 import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
 import { resolvePointerOrThrow } from './schema/resolve';
+import {
+  ActivePresets,
+  PRESETS_KEY,
+  presetNames,
+  presetsErrors,
+  activePresetName,
+  resolveNumericOrThrow,
+  schemaDefinitions
+} from './schema/definitions';
 import { DenseDecodeError, DenseEncodeError } from './errors';
 import {
   constantFieldValueError,
@@ -46,8 +55,29 @@ const sizeForOptions = (options: readonly string[]): number => options.length;
 export const densing = (denseSchema: DenseSchema, data: any, base: BaseSpec = 'base64url'): string => {
   if (typeof data !== 'object' || data === null) throw new DenseEncodeError('', 'expected object');
   const w = new BitWriter();
-  denseSchema.fields.forEach((f) => densingField(w, f, data[f.name], denseSchema, f.name));
+  const presets = writePresets(w, denseSchema, data[PRESETS_KEY]);
+  denseSchema.fields.forEach((f) => densingField(w, f, data[f.name], denseSchema, f.name, presets));
   return w.getFromBase(base);
+};
+
+/**
+ * Write the preset header: for every definition, the index of its active preset (see FORMAT.md)
+ * @returns the active presets, `undefined` for a schema without definitions
+ */
+const writePresets = (w: BitWriter, schema: DenseSchema, value: unknown): ActivePresets | undefined => {
+  const definitions = schemaDefinitions(schema);
+  if (!definitions.length) return undefined;
+  const [error] = presetsErrors(schema, value);
+  if (error) throw new DenseEncodeError(error.path, error.message);
+
+  const active: Record<string, string> = {};
+  for (const definition of definitions) {
+    const names = presetNames(definition);
+    const name = activePresetName(definition, value as ActivePresets | undefined) as string;
+    active[definition.name] = name;
+    w.writeUInt(names.indexOf(name), bitsForOptions(names));
+  }
+  return active;
 };
 
 /**
@@ -102,8 +132,9 @@ const writeLength = (w: BitWriter, length: number, minLength: number, maxLength:
  * @param w - The bit writer to write the dense data to
  * @param field - The field used as the template to dense the value with
  * @param value - The value to dense
- * @param schema - The root schema (for resolving pointers)
+ * @param schema - The root schema (for resolving pointers and numeric definitions)
  * @param path - Path of the value, used in error messages
+ * @param presets - The active preset per definition (default presets when not given)
  * @throws DenseEncodeError when the value does not match the field
  */
 export const densingField = (
@@ -111,7 +142,8 @@ export const densingField = (
   field: DenseField,
   value: any,
   schema?: DenseSchema,
-  path: string = field.name
+  path: string = field.name,
+  presets?: ActivePresets
 ): void => {
   if (value === undefined && field.type !== 'optional') throw new DenseEncodeError(path, 'missing value');
 
@@ -123,10 +155,16 @@ export const densingField = (
       w.writeUInt(getUIntForConstantBitWidthField(field, value, path), getBitWidthForContantBitWidthFields(field));
       break;
 
+    case 'reference_numeric': {
+      const concrete = resolveNumericOrThrow(field, schema, presets);
+      w.writeUInt(getUIntForConstantBitWidthField(concrete, value, path), getBitWidthForContantBitWidthFields(concrete));
+      break;
+    }
+
     case 'array': {
       if (!Array.isArray(value)) throw new DenseEncodeError(path, 'expected array');
       writeLength(w, value.length, field.minLength, field.maxLength, path);
-      value.forEach((v, i) => densingField(w, field.items, v, schema, `${path}[${i}]`));
+      value.forEach((v, i) => densingField(w, field.items, v, schema, `${path}[${i}]`, presets));
       break;
     }
 
@@ -141,7 +179,9 @@ export const densingField = (
           `invalid discriminator "${discValue}", expected one of [${discriminator.options.join(', ')}]`
         );
       w.writeUInt(discIdx, bitsForOptions(discriminator.options));
-      field.variants[discValue].forEach((f) => densingField(w, f, value[f.name], schema, `${path}.${f.name}`));
+      field.variants[discValue].forEach((f) =>
+        densingField(w, f, value[f.name], schema, `${path}.${f.name}`, presets)
+      );
       break;
     }
 
@@ -162,18 +202,18 @@ export const densingField = (
     case 'optional': {
       const isPresent = value !== undefined && value !== null;
       w.writeUInt(isPresent ? 1 : 0, 1);
-      if (isPresent) densingField(w, field.field, value, schema, path);
+      if (isPresent) densingField(w, field.field, value, schema, path, presets);
       break;
     }
 
     case 'object': {
       if (typeof value !== 'object' || value === null) throw new DenseEncodeError(path, 'expected object');
-      field.fields.forEach((f) => densingField(w, f, value[f.name], schema, `${path}.${f.name}`));
+      field.fields.forEach((f) => densingField(w, f, value[f.name], schema, `${path}.${f.name}`, presets));
       break;
     }
 
     case 'pointer':
-      densingField(w, resolvePointerOrThrow(field, schema), value, schema, path);
+      densingField(w, resolvePointerOrThrow(field, schema), value, schema, path, presets);
       break;
 
     default:
@@ -193,9 +233,28 @@ export const densingField = (
 export const undensing = (denseSchema: DenseSchema, baseString: string, base: BaseSpec = 'base64url'): any => {
   const r = BitReader.getFromBase(baseString, base);
   const obj: any = {};
-  denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f, denseSchema, f.name)));
+  const presets = readPresets(r, denseSchema);
+  if (presets) obj[PRESETS_KEY] = presets;
+  denseSchema.fields.forEach((f) => (obj[f.name] = undensingField(r, f, denseSchema, f.name, presets)));
   r.assertCanonicalEnd();
   return obj;
+};
+
+/** Read the preset header written by `writePresets`, `undefined` for a schema without definitions */
+const readPresets = (r: BitReader, schema: DenseSchema): Record<string, string> | undefined => {
+  const definitions = schemaDefinitions(schema);
+  if (!definitions.length) return undefined;
+
+  const active: Record<string, string> = {};
+  for (const definition of definitions) {
+    const names = presetNames(definition);
+    const path = `${PRESETS_KEY}.${definition.name}`;
+    const idx = readAt(path, () => r.readUInt(bitsForOptions(names)));
+    if (idx >= names.length)
+      throw new DenseDecodeError(path, `preset index ${idx} exceeds the ${names.length} presets`);
+    active[definition.name] = names[idx];
+  }
+  return active;
 };
 
 export const undensingDataForConstantBitWidthField = (field: ConstantBitWidthField, unsignedInt: number): any => {
@@ -239,6 +298,14 @@ const readAt = <T>(path: string, read: () => T): T => {
   }
 };
 
+/** Read a constant-width field, rejecting stored values the encoder cannot produce */
+const readConstant = (r: BitReader, field: ConstantBitWidthField, path: string): any => {
+  const uInt = readAt(path, () => r.readUInt(getBitWidthForContantBitWidthFields(field)));
+  const max = maxUIntForConstantBitWidthField(field);
+  if (uInt > max) throw new DenseDecodeError(path, `stored value ${uInt} exceeds the field's maximum ${max}`);
+  return undensingDataForConstantBitWidthField(field, uInt);
+};
+
 const readLength = (r: BitReader, minLength: number, maxLength: number, path: string): number => {
   const length = lengthForUIntMinMaxLength(
     readAt(path, () => r.readUInt(bitsForMinMaxLength(minLength, maxLength))),
@@ -253,8 +320,9 @@ const readLength = (r: BitReader, minLength: number, maxLength: number, path: st
  * Internal Helper method to undense a single field of the schema from the given bit reader
  * @param r - The bit reader to read the dense data from
  * @param denseField - The field used as the template to undense the value with
- * @param schema - The root schema (for resolving pointers)
+ * @param schema - The root schema (for resolving pointers and numeric definitions)
  * @param path - Path of the value, used in error messages
+ * @param presets - The active preset per definition (default presets when not given)
  * @returns The undense value
  * @throws DenseDecodeError when the bits cannot have been written by the encoder for this field
  */
@@ -262,23 +330,22 @@ export const undensingField = (
   r: BitReader,
   denseField: DenseField,
   schema?: DenseSchema,
-  path: string = denseField.name
+  path: string = denseField.name,
+  presets?: ActivePresets
 ): any => {
   switch (denseField.type) {
     case 'bool':
     case 'int':
     case 'enum':
-    case 'fixed': {
-      const uInt = readAt(path, () => r.readUInt(getBitWidthForContantBitWidthFields(denseField)));
-      const max = maxUIntForConstantBitWidthField(denseField);
-      if (uInt > max)
-        throw new DenseDecodeError(path, `stored value ${uInt} exceeds the field's maximum ${max}`);
-      return undensingDataForConstantBitWidthField(denseField, uInt);
-    }
+    case 'fixed':
+      return readConstant(r, denseField, path);
+
+    case 'reference_numeric':
+      return readConstant(r, resolveNumericOrThrow(denseField, schema, presets), path);
 
     case 'array': {
       const length = readLength(r, denseField.minLength, denseField.maxLength, path);
-      return Array.from({ length }, (_, i) => undensingField(r, denseField.items, schema, `${path}[${i}]`));
+      return Array.from({ length }, (_, i) => undensingField(r, denseField.items, schema, `${path}[${i}]`, presets));
     }
 
     case 'union': {
@@ -289,7 +356,9 @@ export const undensingField = (
         throw new DenseDecodeError(discPath, `discriminator index ${idx} exceeds the ${discriminator.options.length} options`);
       const key = discriminator.options[idx];
       const obj: any = { [discriminator.name]: key };
-      denseField.variants[key].forEach((f) => (obj[f.name] = undensingField(r, f, schema, `${path}.${f.name}`)));
+      denseField.variants[key].forEach(
+        (f) => (obj[f.name] = undensingField(r, f, schema, `${path}.${f.name}`, presets))
+      );
       return obj;
     }
 
@@ -316,18 +385,18 @@ export const undensingField = (
 
     case 'optional':
       return readAt(path, () => r.readUInt(1))
-        ? undensingField(r, denseField.field, schema, path)
+        ? undensingField(r, denseField.field, schema, path, presets)
         : denseField.defaultValue !== undefined
         ? denseField.defaultValue
         : null;
 
     case 'object':
       return Object.fromEntries(
-        denseField.fields.map((f) => [f.name, undensingField(r, f, schema, `${path}.${f.name}`)])
+        denseField.fields.map((f) => [f.name, undensingField(r, f, schema, `${path}.${f.name}`, presets)])
       );
 
     case 'pointer':
-      return undensingField(r, resolvePointerOrThrow(denseField, schema), schema, path);
+      return undensingField(r, resolvePointerOrThrow(denseField, schema), schema, path, presets);
 
     default:
       return assertNeverDenseField(denseField);

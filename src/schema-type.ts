@@ -9,7 +9,8 @@ export type DenseField =
   | UnionField
   | OptionalField
   | ObjectField
-  | PointerField;
+  | PointerField
+  | ReferenceNumericField;
 
 export interface BoolField {
   type: 'bool';
@@ -84,7 +85,39 @@ export interface PointerField {
   targetName: string;
 }
 
+/**
+ * A number whose range and precision come from a schema-level `NumericDefinition`. Which of the
+ * definition's presets applies is stored once per payload (`$presets` in the data).
+ */
+export interface ReferenceNumericField {
+  type: 'reference_numeric';
+  name: string;
+  /** name of the `NumericDefinition` */
+  ref: string;
+}
+
+/** One preset of a `NumericDefinition`: an `int` without `precision`, a `fixed` with it */
+export interface NumericPreset {
+  min: number;
+  max: number;
+  precision?: number;
+  defaultValue?: number;
+}
+
+/**
+ * A numeric definition shared by `reference_numeric` fields. Every payload selects one of its presets
+ * (in the header, `bits(presets)` bits), and all fields referencing it are encoded with that preset.
+ */
+export interface NumericDefinition {
+  name: string;
+  /** in preset order: the order of the indices stored in the header */
+  presets: Record<string, NumericPreset>;
+  /** preset used when the data does not select one; the first preset when not set */
+  defaultPreset?: string;
+}
+
 export interface DenseSchema {
+  definitions?: NumericDefinition[];
   fields: DenseField[];
 }
 
@@ -99,7 +132,8 @@ export const FieldTypes = [
   'union',
   'optional',
   'object',
-  'pointer'
+  'pointer',
+  'reference_numeric'
 ] as const;
 
 /**

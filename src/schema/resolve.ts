@@ -36,6 +36,7 @@ const findFieldByName = (fields: DenseField[], targetName: string, visited: Set<
       case 'enum':
       case 'enum_array':
       case 'pointer':
+      case 'reference_numeric':
         break;
       default:
         assertNeverDenseField(field);

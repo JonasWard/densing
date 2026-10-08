@@ -9,7 +9,9 @@ A payload is produced in two steps:
 1. every field is written into a single **bit stream** (section 1-2)
 2. the bit stream is written as **text** in an alphabet (section 3)
 
-There is no header, no version and no length prefix: the schema is required to read a payload.
+There is no version and no length prefix: the schema is required to read a payload. The only header
+is the preset header of a schema with numeric definitions (section 2); without definitions there is
+none.
 
 ## 1. Bit stream
 
@@ -47,6 +49,15 @@ at boundaries (e.g. `ceil(log2(2^49 + 1))` evaluates to 49 in JavaScript).
 | `object(fields)` | each field in declaration order, nothing else |
 | `union(discriminator, variants)` | the discriminator as an `enum`, then the fields of the selected variant in declaration order |
 | `pointer(targetName)` | exactly the encoding of the field it resolves to |
+| `reference_numeric(ref)` | exactly the encoding of the active preset of definition `ref`, as an `int` (preset without `precision`) or a `fixed` |
+
+### Preset header
+
+A schema with `definitions` starts with a header, before the first field: for each definition in
+declaration order, the index of its active preset (in the order of the definition's `presets`
+object) in `bits(presets.length)` bits. A definition with a single preset writes nothing. The data
+selects presets with `$presets: { [definition]: preset }`; a definition it leaves out uses its
+`defaultPreset`. A decoder rejects an index past the presets.
 
 ### `enum_array` content
 

@@ -7,6 +7,15 @@ import {
   bitsForOptions
 } from './densing';
 import { resolvePointerOrThrow } from './schema/resolve';
+import {
+  ActivePresets,
+  PRESETS_KEY,
+  allPresetFields,
+  findDefinition,
+  presetNames,
+  resolveNumericOrThrow,
+  schemaDefinitions
+} from './schema/definitions';
 
 /** `count * bits`, where a count of 0 contributes nothing even when `bits` is unbounded */
 const repeatBits = (count: number, bits: number): number => (count === 0 ? 0 : count * bits);
@@ -37,6 +46,15 @@ const fieldBitWidthRange = (
       // Constant bit width fields always use the same number of bits
       const bits = getBitWidthForContantBitWidthFields(field);
       return { min: bits, max: bits };
+    }
+
+    case 'reference_numeric': {
+      // the width of the active preset: anything between the narrowest and the widest preset
+      if (!schema) throw new Error(`reference_numeric field "${field.name}" requires schema context`);
+      const definition = findDefinition(schema, field.ref);
+      if (!definition) throw new Error(`reference_numeric field "${field.name}": definition "${field.ref}" does not exist`);
+      const widths = allPresetFields(definition).map(getBitWidthForContantBitWidthFields);
+      return { min: Math.min(...widths), max: Math.max(...widths) };
     }
 
     case 'optional': {
@@ -104,7 +122,7 @@ const fieldBitWidthRange = (
  * Calculate the bit width RANGE for a field (min and max possible bits)
  * Returns the minimum and maximum number of bits that can be used to encode this field.
  * For recursive schemas `max` is `Infinity`: there is no static upper bound.
- * @param schema - the root schema, required to resolve `pointer` fields
+ * @param schema - the root schema, required to resolve `pointer` and `reference_numeric` fields
  */
 export const getDenseFieldBitWidthRange = (field: DenseField, schema?: DenseSchema): { min: number; max: number } =>
   fieldBitWidthRange(field, schema, new Set());
@@ -112,8 +130,14 @@ export const getDenseFieldBitWidthRange = (field: DenseField, schema?: DenseSche
 /**
  * Calculate the ACTUAL bit width for a field with a specific value
  * Returns the exact number of bits that will be used when encoding this value
+ * @param presets - the active preset per definition (the data's `$presets`), default presets when not given
  */
-export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schema?: DenseSchema): number => {
+export const calculateDenseFieldBitWidth = (
+  field: DenseField,
+  value: any,
+  schema?: DenseSchema,
+  presets?: ActivePresets
+): number => {
   switch (field.type) {
     case 'bool':
     case 'int':
@@ -121,16 +145,22 @@ export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schem
     case 'enum':
       return getBitWidthForContantBitWidthFields(field);
 
+    case 'reference_numeric':
+      return getBitWidthForContantBitWidthFields(resolveNumericOrThrow(field, schema, presets));
+
     case 'optional': {
       // 1 bit for presence + actual field size if present
       const isPresent = value !== null && value !== undefined;
-      return 1 + (isPresent ? calculateDenseFieldBitWidth(field.field, value, schema) : 0);
+      return 1 + (isPresent ? calculateDenseFieldBitWidth(field.field, value, schema, presets) : 0);
     }
 
     case 'array': {
       if (!Array.isArray(value)) return 0;
       const lengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
-      const contentBits = value.reduce((sum, item) => sum + calculateDenseFieldBitWidth(field.items, item, schema), 0);
+      const contentBits = value.reduce(
+        (sum, item) => sum + calculateDenseFieldBitWidth(field.items, item, schema, presets),
+        0
+      );
       return lengthBits + contentBits;
     }
 
@@ -143,7 +173,10 @@ export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schem
     }
 
     case 'object': {
-      return field.fields.reduce((sum, f) => sum + calculateDenseFieldBitWidth(f, value?.[f.name], schema), 0);
+      return field.fields.reduce(
+        (sum, f) => sum + calculateDenseFieldBitWidth(f, value?.[f.name], schema, presets),
+        0
+      );
     }
 
     case 'union': {
@@ -153,7 +186,7 @@ export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schem
 
       const variantFields = field.variants[variantType] || [];
       const variantBits = variantFields.reduce(
-        (sum, f) => sum + calculateDenseFieldBitWidth(f, value?.[f.name], schema),
+        (sum, f) => sum + calculateDenseFieldBitWidth(f, value?.[f.name], schema, presets),
         0
       );
       return discriminatorBits + variantBits;
@@ -161,7 +194,7 @@ export const calculateDenseFieldBitWidth = (field: DenseField, value: any, schem
 
     case 'pointer': {
       // Pointer: resolve the target field and calculate its bit width
-      return calculateDenseFieldBitWidth(resolvePointerOrThrow(field, schema), value, schema);
+      return calculateDenseFieldBitWidth(resolvePointerOrThrow(field, schema), value, schema, presets);
     }
 
     default:
@@ -183,17 +216,23 @@ export interface SchemaSizeInfo {
     maxBase64Chars: number;
   };
 
-  // Per-field static ranges
+  // Per-field static ranges; `$presets` is the preset header of a schema with definitions
   fieldRanges: Record<string, { min: number; max: number }>;
 }
+
+/** Bits of the preset header: the preset index of every definition (0 for a schema without definitions) */
+const presetHeaderBits = (schema: DenseSchema): number =>
+  schemaDefinitions(schema).reduce((sum, definition) => sum + bitsForOptions(presetNames(definition)), 0);
 
 /**
  * Analyze a schema to get static size information (min/max possible encoding sizes)
  */
 export const analyzeDenseSchemaSize = (schema: DenseSchema): SchemaSizeInfo => {
   const fieldRanges: Record<string, { min: number; max: number }> = {};
-  let totalMin = 0;
-  let totalMax = 0;
+  const headerBits = presetHeaderBits(schema);
+  if (schemaDefinitions(schema).length) fieldRanges[PRESETS_KEY] = { min: headerBits, max: headerBits };
+  let totalMin = headerBits;
+  let totalMax = headerBits;
 
   schema.fields.forEach((field) => {
     const range = getDenseFieldBitWidthRange(field, schema);
@@ -223,7 +262,7 @@ export interface DataSizeInfo {
   totalBytes: number;
   base64Length: number;
 
-  // Per-field actual sizes
+  // Per-field actual sizes; `$presets` is the preset header of a schema with definitions
   fieldSizes: Record<string, number>;
 
   // Efficiency metric
@@ -241,10 +280,12 @@ export interface DataSizeInfo {
 export const calculateDenseDataSize = (schema: DenseSchema, data: any): DataSizeInfo => {
   const schemaAnalysis = analyzeDenseSchemaSize(schema);
   const fieldSizes: Record<string, number> = {};
-  let totalBits = 0;
+  const headerBits = presetHeaderBits(schema);
+  if (schemaDefinitions(schema).length) fieldSizes[PRESETS_KEY] = headerBits;
+  let totalBits = headerBits;
 
   schema.fields.forEach((field) => {
-    const bits = calculateDenseFieldBitWidth(field, data[field.name], schema);
+    const bits = calculateDenseFieldBitWidth(field, data[field.name], schema, data[PRESETS_KEY]);
     fieldSizes[field.name] = bits;
     totalBits += bits;
   });
@@ -303,6 +344,7 @@ const childFields = (field: DenseField, schema: DenseSchema, pointerDepth: numbe
     case 'fixed':
     case 'enum':
     case 'enum_array':
+    case 'reference_numeric':
       return [];
     default:
       return assertNeverDenseField(field);
@@ -373,6 +415,7 @@ const walkField = (
     case 'enum':
     case 'enum_array':
     case 'pointer':
+    case 'reference_numeric':
       break;
     default:
       assertNeverDenseField(field);

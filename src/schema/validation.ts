@@ -1,6 +1,7 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 import { constantFieldValueError, lengthError } from '../values';
 import { resolveDenseFieldByName } from './resolve';
+import { ActivePresets, PRESETS_KEY, lookupNumeric, presetsErrors } from './definitions';
 
 export interface ValidationError {
   path: string;
@@ -30,8 +31,12 @@ const pushLengthError = (
 export const validate = (schema: DenseSchema, data: any): ValidationResult => {
   const errors: ValidationError[] = [];
 
+  errors.push(...presetsErrors(schema, data[PRESETS_KEY]));
+  // with invalid presets it is unknown which preset a `reference_numeric` value has to fit
+  const ctx: Context = { errors, schema, presets: data[PRESETS_KEY], presetsKnown: errors.length === 0 };
+
   for (const field of schema.fields) {
-    validateField(field, data[field.name], field.name, errors, schema);
+    check(field, data[field.name], field.name, ctx);
   }
 
   return {
@@ -42,22 +47,38 @@ export const validate = (schema: DenseSchema, data: any): ValidationResult => {
 
 /**
  * Validate one value against a field, appending to `errors`
- * @param schema - the root schema; needed to follow `pointer` fields (without it they are not checked)
+ * @param schema - the root schema; needed to follow `pointer` and `reference_numeric` fields (without
+ * it they are not checked)
+ * @param presets - the active preset per definition (the data's `$presets`), default presets when not given
  */
 export const validateField = (
   field: DenseField,
   value: any,
   path: string,
   errors: ValidationError[],
-  schema?: DenseSchema
-): void => {
+  schema?: DenseSchema,
+  presets?: ActivePresets
+): void => check(field, value, path, { errors, schema, presets, presetsKnown: true });
+
+interface Context {
+  errors: ValidationError[];
+  schema?: DenseSchema;
+  presets?: ActivePresets;
+  /** false when `$presets` is invalid: `reference_numeric` values are then only checked to be numbers */
+  presetsKnown: boolean;
+}
+
+const check = (field: DenseField, value: any, path: string, ctx: Context): void => {
+  const { errors, schema } = ctx;
+  const recurse = (f: DenseField, v: any, p: string) => check(f, v, p, ctx);
+
   // For optional fields, undefined/null is valid
   if (field.type === 'optional') {
     if (value === undefined || value === null) {
       return; // Optional fields can be undefined
     }
     // If present, validate the inner field
-    validateField(field.field, value, path, errors, schema);
+    recurse(field.field, value, path);
     return;
   }
 
@@ -79,6 +100,18 @@ export const validateField = (
       return;
     }
 
+    case 'reference_numeric': {
+      if (!ctx.presetsKnown) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) errors.push({ path, message: 'expected number' });
+        return;
+      }
+      if (!schema) return; // cannot resolve without the root schema
+      const result = lookupNumeric(field, schema, ctx.presets);
+      const error = 'error' in result ? result.error : constantFieldValueError(result.field, value);
+      if (error) errors.push({ path, message: error });
+      return;
+    }
+
     case 'array':
       if (!Array.isArray(value)) {
         errors.push({ path, message: 'expected array' });
@@ -87,7 +120,7 @@ export const validateField = (
 
       pushLengthError(value.length, field.minLength, field.maxLength, path, errors);
 
-      value.forEach((item, i) => validateField(field.items, item, `${path}[${i}]`, errors, schema));
+      value.forEach((item, i) => recurse(field.items, item, `${path}[${i}]`));
       return;
 
     case 'union': {
@@ -118,7 +151,7 @@ export const validateField = (
       }
 
       for (const f of variantFields) {
-        validateField(f, value[f.name], `${path}.${f.name}`, errors, schema);
+        recurse(f, value[f.name], `${path}.${f.name}`);
       }
 
       return;
@@ -146,7 +179,7 @@ export const validateField = (
       }
 
       for (const f of field.fields) {
-        validateField(f, value[f.name], `${path}.${f.name}`, errors, schema);
+        recurse(f, value[f.name], `${path}.${f.name}`);
       }
       return;
     }
@@ -158,7 +191,7 @@ export const validateField = (
         errors.push({ path, message: `pointer target "${field.targetName}" does not exist` });
         return;
       }
-      validateField(target, value, path, errors, schema);
+      recurse(target, value, path);
       return;
     }
 
