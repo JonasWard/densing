@@ -23,18 +23,14 @@ import {
   pointer,
   definition,
   referenceNumeric,
-  schemaWithDefinitions
+  schemaWithDefinitions,
+  customBase
 } from '../index';
-
-const testResultComparisonMethod = (encoded: string, data: any, bitsInfo: string) =>
-  `"${encoded}" (${bitsInfo} bits, ${encoded.length} base64 chars vs JSON ${
-    JSON.stringify(data).length
-  } chars, -${Math.round((1 - encoded.length / JSON.stringify(data).length) * 100)}%)`;
 
 // Every size figure produced by the tests below; the last test checks that the README quotes none other
 const producedFigures = new Set<string>();
-const figure = (encoded: string, data: any, bitsInfo: string) => {
-  const result = testResultComparisonMethod(encoded, data, bitsInfo);
+const figure = (encoded: string, _data: unknown, bitsInfo: string) => {
+  const result = `"${encoded}" (${bitsInfo} bits)`;
   producedFigures.add(result);
   return result;
 };
@@ -494,6 +490,8 @@ test('README: shared numeric definitions', () => {
   const m = { $presets: { length: 'm' }, width: 12.5, height: 0.4, depth: 80 };
   expect(calculateDenseDataSize(Box, mm).totalBits).toBe(31);
   expect(calculateDenseDataSize(Box, m).totalBits).toBe(43);
+  figure(densing(Box, mm), mm, '31');
+  figure(densing(Box, m), m, '43');
   expect(undensing(Box, densing(Box, mm))).toEqual({ $presets: { length: 'mm' }, ...mm });
   expect(undensing(Box, densing(Box, m))).toEqual(m);
   expect(validate(Box, { ...mm, height: 12.5 }).valid).toBe(false);
@@ -501,10 +499,38 @@ test('README: shared numeric definitions', () => {
   expect(validate(Box, { ...m, height: 40 }).valid).toBe(true);
 });
 
+// ===== Alphabets =====
+test('README: alphabets', () => {
+  const DeviceSchema = schema(
+    int('deviceId', 0, 1000),
+    bool('enabled'),
+    fixed('temperature', -40, 125, 0.1),
+    enumeration('mode', ['eco', 'normal', 'performance'])
+  );
+  const data = { deviceId: 42, enabled: true, temperature: 23.5, mode: 'performance' };
+  expect(densing(DeviceSchema, data)).toBe('Cqnu');
+  expect(densing(DeviceSchema, data, 'baseQRCode45UrlSafe')).toBe('1CZYG');
+  expect(densing(DeviceSchema, data, 'binary')).toBe('000010101010100111101110');
+  expect(densing(DeviceSchema, data, customBase('0123456789abcdef'))).toBe('0aa9ee');
+  expect(JSON.stringify(data).length).toBe(70);
+  expect(validate(DeviceSchema, { ...data, deviceId: 2000 }).errors).toEqual([
+    { path: 'deviceId', message: 'value 2000 out of range [0, 1000]' }
+  ]);
+  expect(calculateDenseDataSize(DeviceSchema, data).fieldSizes).toEqual({ deviceId: 10, enabled: 1, temperature: 11, mode: 2 });
+  expect(analyzeDenseSchemaSize(DeviceSchema).staticRange).toEqual({
+    minBits: 24,
+    maxBits: 24,
+    minBytes: 3,
+    maxBytes: 3,
+    minBase64Chars: 4,
+    maxBase64Chars: 4
+  });
+});
+
 // ===== README figures =====
 test('every size figure quoted in README.md is produced by a test above', () => {
   const readme = readFileSync(join(import.meta.dir, '../../README.md'), 'utf8');
-  const quoted = readme.match(/"[^"]*" \(\d+ bits, \d+ base64 chars vs JSON \d+ chars, -\d+%\)/g) ?? [];
+  const quoted = readme.match(/"[^"]*" \(\d+ bits\)/g) ?? [];
   expect(quoted.length).toBeGreaterThan(0);
   for (const q of quoted) expect(producedFigures).toContain(q);
 });
