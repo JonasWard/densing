@@ -1,10 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.1] - 2026-10-08
 
 ### Added
 
 - **Shared numeric definitions**: `definition(name, presets, defaultPreset?)` declares a numeric range once, with one or more presets (`int` without `precision`, `fixed` with it); `referenceNumeric(name, definition)` adds a `reference_numeric` field using it, in a schema built with `schemaWithDefinitions(definitions, ...fields)`. Each payload selects the active preset per definition (`$presets` in the data, a preset header of `bits(presets)` bits per definition on the wire, see FORMAT.md) and all referencing fields are encoded with it. Supported by `validate`, `getDefaultData`, `generateTypes`, the size analysis, `schemaFromJson` (`definitions` at the schema root) and so the CLI. Schemas without definitions encode exactly as before
+
+### Changed
+
+- `DenseField` and `FieldTypes` include the new `reference_numeric` type: code with an exhaustive `switch` over field types needs a case for it
 
 ## [0.4.0] - 2026-10-07
 
