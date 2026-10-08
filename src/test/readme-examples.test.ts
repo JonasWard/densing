@@ -20,7 +20,10 @@ import {
   calculateDenseDataSize,
   getDefaultData,
   generateTypes,
-  pointer
+  pointer,
+  definition,
+  referenceNumeric,
+  schemaWithDefinitions
 } from '../index';
 
 const testResultComparisonMethod = (encoded: string, data: any, bitsInfo: string) =>
@@ -472,6 +475,30 @@ test('Real-World - Complex Config Schema', () => {
   // Verify it's actually compact - at least 50% smaller than JSON
   const jsonSize = JSON.stringify(config).length;
   expect(encoded.length).toBeLessThan(jsonSize / 2);
+});
+
+// ===== Shared Numeric Definitions =====
+test('README: shared numeric definitions', () => {
+  const length = definition('length', {
+    mm: { min: 0, max: 1000 },
+    m: { min: 0, max: 100, precision: 0.01 }
+  });
+  const Box = schemaWithDefinitions(
+    [length],
+    referenceNumeric('width', length),
+    referenceNumeric('height', length),
+    referenceNumeric('depth', 'length')
+  );
+
+  const mm = { width: 120, height: 40, depth: 800 };
+  const m = { $presets: { length: 'm' }, width: 12.5, height: 0.4, depth: 80 };
+  expect(calculateDenseDataSize(Box, mm).totalBits).toBe(31);
+  expect(calculateDenseDataSize(Box, m).totalBits).toBe(43);
+  expect(undensing(Box, densing(Box, mm))).toEqual({ $presets: { length: 'mm' }, ...mm });
+  expect(undensing(Box, densing(Box, m))).toEqual(m);
+  expect(validate(Box, { ...mm, height: 12.5 }).valid).toBe(false);
+  expect(validate(Box, { $presets: { length: 'm' }, ...mm, height: 12.5 }).valid).toBe(false); // 800 > 100
+  expect(validate(Box, { ...m, height: 40 }).valid).toBe(true);
 });
 
 // ===== README figures =====

@@ -231,6 +231,9 @@ call it yourself for schemas built by hand or loaded from JSON.
   declaration order
 - every `pointer` target has a finite value: a recursive cycle must pass through a union variant, an
   optional or an array that may be empty
+- definition names are unique, every definition has a preset and its `defaultPreset` is one of them
+- every `reference_numeric` field refers to an existing definition, and no top-level field of a schema
+  with definitions is called `$presets`
 
 ```typescript
 validateSchema({ fields: [object('node', int('v', 0, 3), pointer('next', 'node'))] });
@@ -240,9 +243,9 @@ validateSchema({ fields: [object('node', int('v', 0, 3), pointer('next', 'node')
 ### `schemaFromJson(input: unknown): DenseSchema`
 
 Loads a schema from its JSON representation: a JSON string or a parsed object, for example the
-output of `JSON.stringify(schema)`. Every field is rebuilt with the builders and the result with
-`schema()`, so the builder checks and `validateSchema` apply, and missing `defaultValue`s are filled
-in. Unknown field types and unknown or mistyped properties are rejected. Errors name the field:
+output of `JSON.stringify(schema)`. Every field and definition is rebuilt with the builders and the
+result with `schema()` / `schemaWithDefinitions()`, so the builder checks and `validateSchema` apply,
+and missing `defaultValue`s and `defaultPreset`s are filled in. Unknown field types and unknown or mistyped properties are rejected. Errors name the field:
 
 ```typescript
 schemaFromJson('{"fields":[{"type":"int","name":"age","min":0,"max":120}]}');

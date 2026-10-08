@@ -104,6 +104,7 @@ const MySchema = schema(
 | `enumArray` | Packed enum array   | length + packed content           | `enumArray('tags', enum, 0, 5)`                             |
 | `object`    | Nested object       | sum of field bits                 | `object('config', bool('debug'), int('port', 1024, 65535))` |
 | `union`     | Discriminated union | discriminator + variant           | `union('action', discriminator, variants)`                  |
+| `reference_numeric` | Number from a shared definition | bits of the active preset | `referenceNumeric('width', length)` (see [Shared Numeric Definitions](#shared-numeric-definitions)) |
 
 ## 🎨 Examples
 
@@ -349,6 +350,43 @@ an optional or an array that may be empty); `schema()` checks both. There is no 
 node costs its discriminator plus its own fields. Because a recursive
 schema has no static maximum size, `analyzeDenseSchemaSize` reports an unbounded maximum for it.
 
+### Shared Numeric Definitions
+
+When many values share a range, declare it once with `definition` and refer to it with
+`referenceNumeric`. A definition has one or more **presets**: an `int` (no `precision`) or a `fixed`
+(with `precision`). Each payload stores which preset is active, once per definition, and every field
+referring to it is encoded with that preset:
+
+```typescript
+import { definition, referenceNumeric, schemaWithDefinitions, densing, undensing } from 'densing';
+
+const length = definition('length', {
+  mm: { min: 0, max: 1000 }, // int, 10 bits
+  m: { min: 0, max: 100, precision: 0.01 } // fixed, 14 bits
+});
+
+const Box = schemaWithDefinitions(
+  [length],
+  referenceNumeric('width', length),
+  referenceNumeric('height', length),
+  referenceNumeric('depth', 'length') // by name works too
+);
+
+densing(Box, { width: 120, height: 40, depth: 800 }); // default preset `mm`: 1 + 3 × 10 = 31 bits
+densing(Box, { $presets: { length: 'm' }, width: 12.5, height: 0.4, depth: 80 }); // 1 + 3 × 14 = 43 bits
+
+undensing(Box, densing(Box, { width: 120, height: 40, depth: 800 }));
+// { $presets: { length: 'mm' }, width: 120, height: 40, depth: 800 }
+```
+
+- `$presets` and each of its entries are optional; a definition without one uses its default preset
+  (the third argument of `definition`, otherwise the first preset). Decoding always returns them.
+- The preset choice costs `log2(presets)` bits per definition, so a definition with a single preset
+  is free: it is just a shared range.
+- Values are checked against the active preset (`40` is fine for `mm`, `12.5` only for `m`).
+- Definitions are part of the schema JSON (`{ "definitions": [...], "fields": [...] }`), and a
+  referencing field is `{ "type": "reference_numeric", "name": "width", "ref": "length" }`.
+
 ## 💻 Command Line
 
 The [`densing-cli`](./cli/README.md) package lets you encode, decode, validate, and analyse data from the terminal, using a schema saved as JSON:
@@ -418,7 +456,8 @@ For detailed API documentation, see [API.md](./API.md). The encoding itself is s
 - `undensing(schema, encoded, base?)` - Decode data (throws `DenseDecodeError` for strings the encoder cannot produce, e.g. edited or truncated URLs)
 - `validate(schema, data)` - Validate data
 - `getDefaultData(schema)` - Generate default values
-- `validateSchema(schema)` - Check pointer targets (run by `schema()`)
+- `schemaWithDefinitions(definitions, ...fields)` - Define a schema with shared numeric definitions
+- `validateSchema(schema)` - Check pointer targets and definition references (run by `schema()`)
 - `schemaFromJson(json)` - Load and validate a schema from its JSON representation
 - `customBase(alphabet)` - A validated custom alphabet
 
@@ -433,6 +472,8 @@ For detailed API documentation, see [API.md](./API.md). The encoding itself is s
 - `enumArray(name, enumField, minLength, maxLength)` - Packed enum array
 - `object(name, ...fields)` - Nested object
 - `union(name, discriminator, variants)` - Discriminated union
+- `definition(name, presets, defaultPreset?)` - Shared numeric definition with presets
+- `referenceNumeric(name, definition)` - Number using a definition's active preset
 
 ### Utility Functions
 

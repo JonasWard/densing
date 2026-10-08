@@ -1,15 +1,20 @@
 import { DenseSchema, DenseField, UnionField, assertNeverDenseField } from '../schema-type';
 import { getDenseFieldBitWidthRange } from '../api';
 import { resolvePointerOrThrow } from './resolve';
+import { PRESETS_KEY, defaultPresetName, resolveNumericOrThrow, schemaDefinitions } from './definitions';
 
 /**
  * Helper method to get the default state as defined by a schema
  * @param schema - `Schema` definition
  * @returns `Object` - A javascript object with the default state described in the schema. It always
- * passes `validate` and can be encoded, also for recursive schemas.
+ * passes `validate` and can be encoded, also for recursive schemas. A schema with numeric definitions
+ * gets `$presets` with the default preset of each definition.
  */
 export const getDefaultData = (schema: DenseSchema): any => {
   const result: any = {};
+  const definitions = schemaDefinitions(schema);
+  if (definitions.length)
+    result[PRESETS_KEY] = Object.fromEntries(definitions.map((d) => [d.name, defaultPresetName(d)]));
   schema.fields.forEach((field) => {
     result[field.name] = getDefaultValueForField(field, schema, new Set(), false);
   });
@@ -53,6 +58,9 @@ const getDefaultValueForField = (
     case 'fixed':
     case 'enum_array':
       return field.defaultValue;
+
+    case 'reference_numeric':
+      return resolveNumericOrThrow(field, schema).defaultValue;
 
     case 'optional':
       if (minimal || field.defaultValue === undefined) return null;

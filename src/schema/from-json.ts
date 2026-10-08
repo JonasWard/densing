@@ -1,5 +1,20 @@
-import { DenseField, DenseSchema, EnumField, FieldTypes } from '../schema-type';
-import { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, schema, union } from './builder';
+import { DenseField, DenseSchema, EnumField, FieldTypes, NumericDefinition, NumericPreset } from '../schema-type';
+import {
+  array,
+  bool,
+  definition,
+  enumArray,
+  enumeration,
+  fixed,
+  int,
+  object,
+  optional,
+  pointer,
+  referenceNumeric,
+  schema,
+  schemaWithDefinitions,
+  union
+} from './builder';
 
 type JsonObject = Record<string, unknown>;
 
@@ -13,14 +28,23 @@ const allowedKeys: Record<DenseField['type'], readonly string[]> = {
   union: ['type', 'name', 'discriminator', 'variants'],
   optional: ['type', 'name', 'field', 'defaultValue'],
   object: ['type', 'name', 'fields'],
-  pointer: ['type', 'name', 'targetName']
+  pointer: ['type', 'name', 'targetName'],
+  reference_numeric: ['type', 'name', 'ref']
 };
+
+const definitionKeys = ['name', 'presets', 'defaultPreset'];
+const presetKeys = ['min', 'max', 'precision', 'defaultValue'];
 
 const isObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const fail = (path: string, message: string): never => {
   throw new Error(`Invalid schema at ${path}: ${message}`);
+};
+
+const failOnUnknownKeys = (json: JsonObject, allowed: readonly string[], path: string) => {
+  const unknownKeys = Object.keys(json).filter((key) => !allowed.includes(key));
+  if (unknownKeys.length) fail(path, `unknown propert${unknownKeys.length > 1 ? 'ies' : 'y'} ${unknownKeys.join(', ')}`);
 };
 
 const requireNumber = (json: JsonObject, key: string, path: string): number => {
@@ -54,8 +78,7 @@ const fieldFromJson = (json: unknown, path: string): DenseField => {
 
   const fieldType = type as DenseField['type'];
   const name = requireString(json, 'name', path);
-  const unknownKeys = Object.keys(json).filter((key) => !allowedKeys[fieldType].includes(key));
-  if (unknownKeys.length) fail(path, `unknown propert${unknownKeys.length > 1 ? 'ies' : 'y'} ${unknownKeys.join(', ')}`);
+  failOnUnknownKeys(json, allowedKeys[fieldType], path);
 
   try {
     switch (fieldType) {
@@ -122,6 +145,8 @@ const fieldFromJson = (json: unknown, path: string): DenseField => {
         return object(name, ...fieldsFromJson(json.fields, `${path}.fields`));
       case 'pointer':
         return pointer(name, requireString(json, 'targetName', path));
+      case 'reference_numeric':
+        return referenceNumeric(name, requireString(json, 'ref', path));
     }
   } catch (error) {
     // builder errors don't know where they are in the schema, re-throw them with the path
@@ -142,10 +167,37 @@ const fieldsFromJson = (json: unknown, path: string): DenseField[] => {
   return json.map((field, i) => fieldFromJson(field, `${path}[${i}]`));
 };
 
+const definitionFromJson = (json: unknown, path: string): NumericDefinition => {
+  if (!isObject(json)) return fail(path, 'definition must be an object');
+  failOnUnknownKeys(json, definitionKeys, path);
+  const name = requireString(json, 'name', path);
+  if (!isObject(json.presets)) return fail(path, '"presets" must be an object');
+  const presets: Record<string, NumericPreset> = {};
+  for (const [key, preset] of Object.entries(json.presets)) {
+    const presetPath = `${path}.presets.${key}`;
+    if (!isObject(preset)) return fail(presetPath, 'preset must be an object');
+    failOnUnknownKeys(preset, presetKeys, presetPath);
+    presets[key] = {
+      min: requireNumber(preset, 'min', presetPath),
+      max: requireNumber(preset, 'max', presetPath),
+      precision: optionalNumber(preset, 'precision', presetPath),
+      defaultValue: optionalNumber(preset, 'defaultValue', presetPath)
+    };
+  }
+  const defaultPreset =
+    json.defaultPreset === undefined || json.defaultPreset === null ? undefined : requireString(json, 'defaultPreset', path);
+  try {
+    return definition(name, presets, defaultPreset);
+  } catch (error) {
+    return fail(path, error instanceof Error ? error.message : String(error));
+  }
+};
+
 /**
  * Load a schema from its JSON representation (e.g. the output of `JSON.stringify(schema)`)
- * Every field is rebuilt with the builder helpers and the result with `schema()`, so the same validation applies
- * (including `validateSchema`'s pointer checks) and missing defaults are filled in
+ * Every field and definition is rebuilt with the builder helpers and the result with `schema()` /
+ * `schemaWithDefinitions()`, so the same validation applies (including `validateSchema`'s pointer and
+ * definition checks) and missing defaults are filled in
  * @param input - the schema as JSON string or already parsed object
  * @returns `DenseSchema` - the validated schema
  * @throws if the input is not a valid schema, the message contains the path of the offending field
@@ -161,12 +213,17 @@ export const schemaFromJson = (input: unknown): DenseSchema => {
   }
 
   if (!isObject(json)) return fail('root', 'schema must be an object with a "fields" array');
-  const unknownKeys = Object.keys(json).filter((key) => key !== 'fields');
-  if (unknownKeys.length) fail('root', `unknown propert${unknownKeys.length > 1 ? 'ies' : 'y'} ${unknownKeys.join(', ')}`);
+  failOnUnknownKeys(json, ['definitions', 'fields'], 'root');
+
+  let definitions: NumericDefinition[] | undefined;
+  if (json.definitions !== undefined && json.definitions !== null) {
+    if (!Array.isArray(json.definitions)) return fail('definitions', 'must be an array of definitions');
+    definitions = json.definitions.map((d, i) => definitionFromJson(d, `definitions[${i}]`));
+  }
 
   const fields = fieldsFromJson(json.fields, 'fields');
   try {
-    return schema(...fields);
+    return definitions ? schemaWithDefinitions(definitions, ...fields) : schema(...fields);
   } catch (error) {
     // whole-schema checks (duplicate top-level names, pointer targets), their messages carry the data path
     const message = error instanceof Error ? error.message : String(error);

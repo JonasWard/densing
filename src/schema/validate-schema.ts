@@ -2,6 +2,7 @@ import { DenseField, DenseSchema, assertNeverDenseField } from '../schema-type';
 import { getDenseFieldBitWidthRange } from '../api';
 import { resolveDenseFieldByName } from './resolve';
 import { ValidationError, ValidationResult } from './validation';
+import { PRESETS_KEY, findDefinition, presetNames, schemaDefinitions } from './definitions';
 
 /**
  * Every field a pointer can resolve to, with its path, in the order `resolveDenseFieldByName`
@@ -34,6 +35,7 @@ const collectPointerCandidates = (
       case 'enum':
       case 'enum_array':
       case 'pointer':
+      case 'reference_numeric':
         break;
       default:
         assertNeverDenseField(field);
@@ -55,10 +57,20 @@ const collectPointerCandidates = (
  * - the target must have a finite value: a cycle has to pass through a union variant, an optional or
  *   an array that may be empty, otherwise no data can ever be encoded (and `pointer('p', 'p')`
  *   would loop forever)
+ *
+ * Numeric definition rules:
+ * - definition names are unique, every definition has at least one preset and its default preset
+ *   is one of them
+ * - every `reference_numeric` field refers to an existing definition
+ * - no top-level field is called `$presets`, the data key that selects the presets
  */
 export const validateSchema = (schema: DenseSchema): ValidationResult => {
   const errors: ValidationError[] = [];
   const candidates = collectPointerCandidates(schema.fields, '', []);
+
+  validateDefinitions(schema, candidates, errors);
+  // the pointer checks below compute bit widths, which need every definition to resolve
+  if (errors.length) return { valid: false, errors };
 
   const byName = new Map<string, string[]>();
   for (const { field, path } of candidates) byName.set(field.name, [...(byName.get(field.name) ?? []), path]);
@@ -91,6 +103,34 @@ export const validateSchema = (schema: DenseSchema): ValidationResult => {
   }
 
   return { valid: errors.length === 0, errors };
+};
+
+const validateDefinitions = (
+  schema: DenseSchema,
+  candidates: { field: DenseField; path: string }[],
+  errors: ValidationError[]
+) => {
+  const definitions = schemaDefinitions(schema);
+  const seen = new Set<string>();
+  definitions.forEach((definition, i) => {
+    const path = `definitions[${i}]`;
+    if (seen.has(definition.name)) errors.push({ path, message: `duplicate definition name "${definition.name}"` });
+    seen.add(definition.name);
+    const names = presetNames(definition);
+    if (!names.length) errors.push({ path, message: `definition "${definition.name}" has no presets` });
+    else if (definition.defaultPreset !== undefined && !names.includes(definition.defaultPreset))
+      errors.push({
+        path,
+        message: `default preset "${definition.defaultPreset}" of definition "${definition.name}" is not one of [${names.join(', ')}]`
+      });
+  });
+
+  if (definitions.length && schema.fields.some((field) => field.name === PRESETS_KEY))
+    errors.push({ path: PRESETS_KEY, message: `"${PRESETS_KEY}" is reserved for the presets of the definitions` });
+
+  for (const { field, path } of candidates)
+    if (field.type === 'reference_numeric' && !findDefinition(schema, field.ref))
+      errors.push({ path, message: `definition "${field.ref}" does not exist` });
 };
 
 /** Throw when `validateSchema` reports an error */

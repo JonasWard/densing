@@ -37,26 +37,27 @@ globalThis.__densingJsonRecorder = (name, args, result) => {
   }
 };
 
-// wrap the exported `schema` builder and `densing` so that every call goes through the recorder
+// wrap the exported schema builders and `densing` so that every call goes through the recorder
 // (the loader is synchronous, an async one would break tests that `require()` these modules)
 Bun.plugin({
   name: 'densing-json-round-trip',
   setup(build) {
     build.onLoad({ filter: /\/src\/(schema\/builder|densing)\.ts$/ }, (args) => {
-      const name = args.path.endsWith('builder.ts') ? 'schema' : 'densing';
-      const source = readFileSync(args.path, 'utf8');
-      const declaration = `export const ${name} = `;
-      if (!source.includes(declaration)) throw new Error(`json round trip: "${declaration}" not found in ${args.path}`);
-      return {
-        loader: 'ts',
-        contents:
-          source.replace(declaration, `const __original_${name} = `) +
+      const isBuilder = args.path.endsWith('builder.ts');
+      const recordAs = isBuilder ? 'schema' : 'densing';
+      let contents = readFileSync(args.path, 'utf8');
+      for (const name of isBuilder ? ['schema', 'schemaWithDefinitions'] : ['densing']) {
+        const declaration = `export const ${name} = `;
+        if (!contents.includes(declaration)) throw new Error(`json round trip: "${declaration}" not found in ${args.path}`);
+        contents =
+          contents.replace(declaration, `const __original_${name} = `) +
           `\nexport const ${name} = (...args: any[]) => {` +
           `\n  const result = (__original_${name} as any)(...args);` +
-          `\n  globalThis.__densingJsonRecorder?.('${name}', args, result);` +
+          `\n  globalThis.__densingJsonRecorder?.('${recordAs}', args, result);` +
           `\n  return result;` +
-          `\n};\n`
-      };
+          `\n};\n`;
+      }
+      return { loader: 'ts', contents };
     });
   }
 });

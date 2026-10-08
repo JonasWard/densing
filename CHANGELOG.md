@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Shared numeric definitions**: `definition(name, presets, defaultPreset?)` declares a numeric range once, with one or more presets (`int` without `precision`, `fixed` with it); `referenceNumeric(name, definition)` adds a `reference_numeric` field using it, in a schema built with `schemaWithDefinitions(definitions, ...fields)`. Each payload selects the active preset per definition (`$presets` in the data, a preset header of `bits(presets)` bits per definition on the wire, see FORMAT.md) and all referencing fields are encoded with it. Supported by `validate`, `getDefaultData`, `generateTypes`, the size analysis, `schemaFromJson` (`definitions` at the schema root) and so the CLI. Schemas without definitions encode exactly as before
+
 ## [0.4.0] - 2026-10-07
 
 Changes since 0.2.3. The `0.3.0` on npm was published from the 0.2.3 code and contains none of the entries below.

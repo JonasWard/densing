@@ -1,7 +1,22 @@
 // The public API. Everything not exported here is internal and may change in any release.
 
 // Schema definition
-export { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, schema, union } from './schema/builder';
+export {
+  array,
+  bool,
+  definition,
+  enumArray,
+  enumeration,
+  fixed,
+  int,
+  object,
+  optional,
+  pointer,
+  referenceNumeric,
+  schema,
+  schemaWithDefinitions,
+  union
+} from './schema/builder';
 export type {
   ArrayField,
   BoolField,
@@ -12,9 +27,12 @@ export type {
   EnumField,
   FixedPointField,
   IntField,
+  NumericDefinition,
+  NumericPreset,
   ObjectField,
   OptionalField,
   PointerField,
+  ReferenceNumericField,
   UnionField
 } from './schema-type';
 export { FieldTypes } from './schema-type';
