@@ -12,7 +12,9 @@ import {
   PointerField,
   NumericDefinition,
   NumericPreset,
-  ReferenceNumericField
+  ReferenceNumericField,
+  ReferenceField,
+  DenseSchema
 } from '../schema-type';
 import { MAX_FIELD_BITS, constantFieldValueError, fixedMaxStep } from '../values';
 import { validateField, ValidationError } from './validation';
@@ -257,40 +259,187 @@ export const definition = (
   return { name, presets: normalized, defaultPreset: defaultPreset ?? names[0] };
 };
 
+/** Definitions behind `referenceNumeric(name, definition)`, collected by `schema()` */
+const definitionLinks = new WeakMap<ReferenceNumericField, NumericDefinition>();
+
 /**
- * A number whose range and precision come from the active preset of a numeric definition
+ * A number whose range and precision come from the active preset of a numeric definition. Passing
+ * the definition itself is enough: `schema()` collects it. A name only works with
+ * `schemaWithDefinitions`, which is given the definition.
  * @param ref - the definition, or its name
  */
-export const referenceNumeric = (name: string, ref: NumericDefinition | string): ReferenceNumericField => ({
-  type: 'reference_numeric',
-  name,
-  ref: typeof ref === 'string' ? ref : ref.name
-});
+export const referenceNumeric = (name: string, ref: NumericDefinition | string): ReferenceNumericField => {
+  const field: ReferenceNumericField = { type: 'reference_numeric', name, ref: typeof ref === 'string' ? ref : ref.name };
+  if (typeof ref !== 'string') definitionLinks.set(field, ref);
+  return field;
+};
+
+/* =========================
+ * Template Helpers
+ * ========================= */
+
+declare const templateBrand: unique symbol;
+
+/** A field marked with `template()`: a reference-only shape */
+export type Template<T extends DenseField = DenseField> = T & { readonly [templateBrand]: true };
+
+const templates = new WeakSet<DenseField>();
+/** Templates behind `reference(name, template)`, bound to an index by `schema()` */
+const templateLinks = new WeakMap<ReferenceField, Template | (() => Template)>();
+
+/**
+ * Mark a field as a template: a reference-only shape. It is never a value itself, only the shape of
+ * the `reference` fields that use it, and `schema()` stores it once under `templates`. Its name is
+ * the name of the type (`generateTypes` turns `vec3` into `Vec3`), not a key in the data.
+ */
+export const template = <T extends DenseField>(field: T): Template<T> => {
+  templates.add(field);
+  return field as Template<T>;
+};
+
+/**
+ * A value shaped like a template. Encoded exactly as the template; `schema()` collects the template
+ * and sets `ref` to its index in `templates`.
+ * @param target - the template, or a function returning it for a template that refers to itself
+ */
+export const reference = (name: string, target: Template | (() => Template)): ReferenceField => {
+  if (typeof target !== 'function' && !templates.has(target))
+    throw new Error(`reference "${name}": "${target?.name}" is not a template, mark it with template()`);
+  const field: ReferenceField = { type: 'reference', name, ref: -1 };
+  templateLinks.set(field, target);
+  return field;
+};
 
 /* =========================
  * Schema Root Helper
  * ========================= */
 
-const buildSchema = <T extends DenseField[]>(definitions: NumericDefinition[] | undefined, fields: T) => {
+/**
+ * Collect the templates and numeric definitions the fields refer to, and give each `reference` its
+ * template index. Fields without references are kept as they are; on the path to a reference the
+ * containers are copied, so the input fields are never changed.
+ */
+const bindReferences = (
+  fields: DenseField[],
+  explicitDefinitions: NumericDefinition[] | undefined,
+  explicitTemplates: DenseField[] | undefined
+) => {
+  const definitions = [...(explicitDefinitions ?? [])];
+  const boundTemplates: DenseField[] = [];
+  const templateIndex = new Map<DenseField, number>();
+
+  const addDefinition = (found: NumericDefinition) => {
+    const known = definitions.find((d) => d.name === found.name);
+    if (!known) definitions.push(found);
+    else if (known !== found && JSON.stringify(known) !== JSON.stringify(found))
+      throw new Error(`schema: two different definitions are called "${found.name}"`);
+  };
+
+  const indexOf = (target: DenseField): number => {
+    let index = templateIndex.get(target);
+    if (index === undefined) {
+      index = boundTemplates.length;
+      templateIndex.set(target, index);
+      boundTemplates.push(target); // placeholder, so a template referring to itself finds its index
+      boundTemplates[index] = bind(target);
+    }
+    return index;
+  };
+
+  const bindAll = (list: DenseField[]): DenseField[] => {
+    const bound = list.map(bind);
+    return bound.every((f, i) => f === list[i]) ? list : bound;
+  };
+
+  const bind = (field: DenseField): DenseField => {
+    switch (field.type) {
+      case 'reference': {
+        const link = templateLinks.get(field);
+        if (!link) return field; // already bound, e.g. loaded from JSON
+        const target = typeof link === 'function' ? link() : link;
+        if (!target || !templates.has(target))
+          throw new Error(`reference "${field.name}": the target is not a template, mark it with template()`);
+        return { type: 'reference', name: field.name, ref: indexOf(target) };
+      }
+      case 'reference_numeric': {
+        const linked = definitionLinks.get(field);
+        if (linked) addDefinition(linked);
+        return field;
+      }
+      case 'object': {
+        const bound = bindAll(field.fields);
+        return bound === field.fields ? field : { ...field, fields: bound };
+      }
+      case 'array': {
+        const items = bind(field.items);
+        return items === field.items ? field : { ...field, items };
+      }
+      case 'optional': {
+        const inner = bind(field.field);
+        return inner === field.field ? field : { ...field, field: inner };
+      }
+      case 'union': {
+        let changed = false;
+        const variants = Object.fromEntries(
+          Object.entries(field.variants).map(([key, variantFields]) => {
+            const bound = bindAll(variantFields);
+            changed ||= bound !== variantFields;
+            return [key, bound];
+          })
+        );
+        return changed ? { ...field, variants } : field;
+      }
+      default:
+        return field;
+    }
+  };
+
+  // templates given explicitly (from JSON) keep their indices; the ones found through references follow
+  explicitTemplates?.forEach((t) => indexOf(t));
+  const boundFields = bindAll(fields);
+  return { definitions, templates: boundTemplates, fields: boundFields };
+};
+
+/**
+ * Build and check a schema from its parts. `definitions` / `templates` given here are always kept
+ * (also when empty); the ones collected from the fields are added after them.
+ */
+export const schemaFromParts = (
+  parts: { definitions?: NumericDefinition[]; templates?: DenseField[] },
+  fields: DenseField[]
+): DenseSchema => {
   assertUniqueNames('schema', fields);
-  const result = definitions ? ({ definitions, fields } as const) : ({ fields } as const);
+  const bound = bindReferences(fields, parts.definitions, parts.templates);
+  const result: DenseSchema = {
+    ...(parts.definitions || bound.definitions.length ? { definitions: bound.definitions } : {}),
+    ...(parts.templates || bound.templates.length ? { templates: bound.templates } : {}),
+    fields: bound.fields
+  };
   assertValidSchema(result);
   return result;
 };
 
-/**
- * The root of a schema. Also checks the schema as a whole (`validateSchema`): pointer targets must
- * exist, be unambiguous and have a finite value.
- */
-export const schema = <const T extends DenseField[]>(...fields: T): { readonly fields: T } =>
-  buildSchema(undefined, fields);
+/** What `schema()` returns: the fields, plus the templates and definitions they refer to */
+export type BuiltSchema<T extends DenseField[]> = {
+  readonly definitions?: NumericDefinition[];
+  readonly templates?: DenseField[];
+  readonly fields: T;
+};
 
 /**
- * The root of a schema with numeric definitions, for its `reference_numeric` fields. Checked like
- * `schema()`, and every `reference_numeric` field must refer to one of the definitions.
+ * The root of a schema. Collects the templates of its `reference` fields and the numeric definitions
+ * of its `referenceNumeric` fields, and checks the schema as a whole (`validateSchema`): pointer
+ * targets must exist, be unambiguous and have a finite value.
+ */
+export const schema = <const T extends DenseField[]>(...fields: T): BuiltSchema<T> =>
+  schemaFromParts({}, fields) as BuiltSchema<T>;
+
+/**
+ * `schema()` with numeric definitions given up front, for `reference_numeric` fields that refer to a
+ * definition by name. Definitions passed as objects to `referenceNumeric` need no listing here.
  */
 export const schemaWithDefinitions = <const T extends DenseField[]>(
   definitions: NumericDefinition[],
   ...fields: T
-): { readonly definitions: NumericDefinition[]; readonly fields: T } =>
-  buildSchema(definitions, fields) as { readonly definitions: NumericDefinition[]; readonly fields: T };
+): BuiltSchema<T> & { readonly definitions: NumericDefinition[] } =>
+  schemaFromParts({ definitions }, fields) as BuiltSchema<T> & { readonly definitions: NumericDefinition[] };

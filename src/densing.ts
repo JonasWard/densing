@@ -11,6 +11,7 @@ import {
   presetsErrors,
   activePresetName,
   resolveNumericOrThrow,
+  resolveTemplateOrThrow,
   schemaDefinitions
 } from './schema/definitions';
 import { DenseDecodeError, DenseEncodeError } from './errors';
@@ -216,6 +217,10 @@ export const densingField = (
       densingField(w, resolvePointerOrThrow(field, schema), value, schema, path, presets);
       break;
 
+    case 'reference':
+      densingField(w, resolveTemplateOrThrow(field, schema), value, schema, path, presets);
+      break;
+
     default:
       assertNeverDenseField(field);
   }
@@ -397,6 +402,9 @@ export const undensingField = (
 
     case 'pointer':
       return undensingField(r, resolvePointerOrThrow(denseField, schema), schema, path, presets);
+
+    case 'reference':
+      return undensingField(r, resolveTemplateOrThrow(denseField, schema), schema, path, presets);
 
     default:
       return assertNeverDenseField(denseField);
