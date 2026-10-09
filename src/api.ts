@@ -14,6 +14,7 @@ import {
   findDefinition,
   presetNames,
   resolveNumericOrThrow,
+  resolveTemplateOrThrow,
   schemaDefinitions
 } from './schema/definitions';
 
@@ -30,8 +31,9 @@ const sumRanges = (fields: DenseField[], schema: DenseSchema | undefined, pointe
   );
 
 /**
- * @param pointerChain - pointer targets currently being expanded on this branch. Only pointers can
- * introduce a cycle, so only they extend it, and they extend a copy so siblings never see each other.
+ * @param pointerChain - pointer targets and templates currently being expanded on this branch. Only
+ * pointers and references can introduce a cycle, so only they extend it, and they extend a copy so
+ * siblings never see each other.
  */
 const fieldBitWidthRange = (
   field: DenseField,
@@ -111,6 +113,13 @@ const fieldBitWidthRange = (
       // above it supplies the real minimum through another branch).
       if (pointerChain.has(target)) return { min: Infinity, max: Infinity };
       return fieldBitWidthRange(target, schema, new Set(pointerChain).add(target));
+    }
+
+    case 'reference': {
+      // the same as a pointer: a template that is already being expanded is a cycle
+      const template = resolveTemplateOrThrow(field, schema);
+      if (pointerChain.has(template)) return { min: Infinity, max: Infinity };
+      return fieldBitWidthRange(template, schema, new Set(pointerChain).add(template));
     }
 
     default:
@@ -196,6 +205,9 @@ export const calculateDenseFieldBitWidth = (
       // Pointer: resolve the target field and calculate its bit width
       return calculateDenseFieldBitWidth(resolvePointerOrThrow(field, schema), value, schema, presets);
     }
+
+    case 'reference':
+      return calculateDenseFieldBitWidth(resolveTemplateOrThrow(field, schema), value, schema, presets);
 
     default:
       return assertNeverDenseField(field);
@@ -338,6 +350,8 @@ const childFields = (field: DenseField, schema: DenseSchema, pointerDepth: numbe
     case 'pointer':
       // a pointer to a pointer to ... is bounded by the number of fields in the schema
       return pointerDepth > 64 ? [] : childFields(resolvePointerOrThrow(field, schema), schema, pointerDepth + 1);
+    case 'reference':
+      return pointerDepth > 64 ? [] : childFields(resolveTemplateOrThrow(field, schema), schema, pointerDepth + 1);
     case 'array':
     case 'bool':
     case 'int':
@@ -416,6 +430,7 @@ const walkField = (
     case 'enum_array':
     case 'pointer':
     case 'reference_numeric':
+    case 'reference':
       break;
     default:
       assertNeverDenseField(field);

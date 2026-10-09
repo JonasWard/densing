@@ -63,6 +63,7 @@ const walkDenseSchemaField = (field: DenseField, namesAndOptions: Set<string>) =
 
 export const getAllUniqueNamesAndOptions = (schema: DenseSchema): Set<string> => {
   const namesAndOptions = new Set<string>();
+  schema.templates?.forEach((template) => walkDenseSchemaField(template, namesAndOptions));
   schema.definitions?.forEach((definition) => {
     namesAndOptions.add(definition.name);
     Object.keys(definition.presets).forEach((preset) => namesAndOptions.add(preset));
@@ -85,7 +86,8 @@ const metaObjectType = union('metaObjectType', enumeration('type', FieldTypes), 
   optional: [],
   object: [],
   pointer: [],
-  reference_numeric: []
+  reference_numeric: [],
+  reference: []
 } as Record<DenseField['type'], DenseField[]>);
 
 // ToDo for text

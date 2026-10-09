@@ -1,5 +1,5 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
-import { PRESETS_KEY, presetNames, schemaDefinitions } from './definitions';
+import { PRESETS_KEY, presetNames, resolveTemplateOrThrow, schemaDefinitions } from './definitions';
 
 /**
  * Generate TypeScript type definitions from a schema
@@ -20,7 +20,7 @@ export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'Schem
   const rootFields = [
     ...presetsField,
     ...schema.fields.map((field) => {
-      const fieldType = getFieldType(field, types, processedTypes);
+      const fieldType = getFieldType(field, types, processedTypes, schema);
       return `  ${field.name}: ${fieldType};`;
     })
   ].join('\n');
@@ -34,7 +34,12 @@ export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'Schem
 /**
  * Get the TypeScript type for a field
  */
-const getFieldType = (field: DenseField, types: string[], processedTypes: Set<string>): string => {
+const getFieldType = (
+  field: DenseField,
+  types: string[],
+  processedTypes: Set<string>,
+  schema: DenseSchema
+): string => {
   switch (field.type) {
     case 'bool':
       return 'boolean';
@@ -51,12 +56,12 @@ const getFieldType = (field: DenseField, types: string[], processedTypes: Set<st
       return `(${field.enum.options.map((opt) => `'${opt}'`).join(' | ')})[]`;
 
     case 'array': {
-      const itemType = getFieldType(field.items, types, processedTypes);
+      const itemType = getFieldType(field.items, types, processedTypes, schema);
       return `${itemType}[]`;
     }
 
     case 'optional': {
-      const innerType = getFieldType(field.field, types, processedTypes);
+      const innerType = getFieldType(field.field, types, processedTypes, schema);
       return `${innerType} | null`;
     }
 
@@ -67,7 +72,7 @@ const getFieldType = (field: DenseField, types: string[], processedTypes: Set<st
         processedTypes.add(typeName);
         const objectFields = field.fields
           .map((f) => {
-            const fieldType = getFieldType(f, types, processedTypes);
+            const fieldType = getFieldType(f, types, processedTypes, schema);
             return `  ${f.name}: ${fieldType};`;
           })
           .join('\n');
@@ -83,6 +88,19 @@ const getFieldType = (field: DenseField, types: string[], processedTypes: Set<st
       // This creates a self-referential type for recursive structures
       const targetTypeName = capitalize(field.targetName);
       return targetTypeName;
+    }
+
+    case 'reference': {
+      // every template is a named type; objects and unions name themselves, the rest get an alias
+      const template = resolveTemplateOrThrow(field, schema);
+      if (template.type === 'object' || template.type === 'union')
+        return getFieldType(template, types, processedTypes, schema);
+      const typeName = capitalize(template.name);
+      if (!processedTypes.has(typeName)) {
+        processedTypes.add(typeName); // before recursing, so a template that refers to itself terminates
+        types.push(`export type ${typeName} = ${getFieldType(template, types, processedTypes, schema)};`);
+      }
+      return typeName;
     }
 
     case 'union': {
@@ -102,7 +120,7 @@ const getFieldType = (field: DenseField, types: string[], processedTypes: Set<st
           const fields = [
             `  ${field.discriminator.name}: '${option}';`,
             ...variantFields.map((f) => {
-              const fieldType = getFieldType(f, types, processedTypes);
+              const fieldType = getFieldType(f, types, processedTypes, schema);
               return `  ${f.name}: ${fieldType};`;
             })
           ].join('\n');

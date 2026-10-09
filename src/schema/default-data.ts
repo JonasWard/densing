@@ -1,7 +1,13 @@
 import { DenseSchema, DenseField, UnionField, assertNeverDenseField } from '../schema-type';
 import { getDenseFieldBitWidthRange } from '../api';
 import { resolvePointerOrThrow } from './resolve';
-import { PRESETS_KEY, defaultPresetName, resolveNumericOrThrow, schemaDefinitions } from './definitions';
+import {
+  PRESETS_KEY,
+  defaultPresetName,
+  resolveNumericOrThrow,
+  resolveTemplateOrThrow,
+  schemaDefinitions
+} from './definitions';
 
 /**
  * Helper method to get the default state as defined by a schema
@@ -88,6 +94,11 @@ const getDefaultValueForField = (
     case 'pointer': {
       const target = resolvePointerOrThrow(field, schema);
       return getDefaultValueForField(target, schema, inner, minimal || expanding.has(target));
+    }
+
+    case 'reference': {
+      const template = resolveTemplateOrThrow(field, schema);
+      return getDefaultValueForField(template, schema, inner, minimal || expanding.has(template));
     }
 
     default:

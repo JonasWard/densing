@@ -234,6 +234,8 @@ call it yourself for schemas built by hand or loaded from JSON.
 - definition names are unique, every definition has a preset and its `defaultPreset` is one of them
 - every `reference_numeric` field refers to an existing definition, and no top-level field of a schema
   with definitions is called `$presets`
+- every `reference` field's `ref` is an index into `templates`; template names are unique, every
+  template is referenced and has a finite value. Templates are not pointer targets
 
 ```typescript
 validateSchema({ fields: [object('node', int('v', 0, 3), pointer('next', 'node'))] });
@@ -244,7 +246,7 @@ validateSchema({ fields: [object('node', int('v', 0, 3), pointer('next', 'node')
 
 Loads a schema from its JSON representation: a JSON string or a parsed object, for example the
 output of `JSON.stringify(schema)`. Every field and definition is rebuilt with the builders and the
-result with `schema()` / `schemaWithDefinitions()`, so the builder checks and `validateSchema` apply,
+result checked like `schema()`, including its `templates`, so the builder checks and `validateSchema` apply,
 and missing `defaultValue`s and `defaultPreset`s are filled in. Unknown field types and unknown or mistyped properties are rejected. Errors name the field:
 
 ```typescript

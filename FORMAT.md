@@ -49,6 +49,7 @@ at boundaries (e.g. `ceil(log2(2^49 + 1))` evaluates to 49 in JavaScript).
 | `object(fields)` | each field in declaration order, nothing else |
 | `union(discriminator, variants)` | the discriminator as an `enum`, then the fields of the selected variant in declaration order |
 | `pointer(targetName)` | exactly the encoding of the field it resolves to |
+| `reference(ref)` | exactly the encoding of `templates[ref]` |
 | `reference_numeric(ref)` | exactly the encoding of the active preset of definition `ref`, as an `int` (preset without `precision`) or a `fixed` |
 
 ### Preset header

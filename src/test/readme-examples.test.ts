@@ -24,7 +24,9 @@ import {
   definition,
   referenceNumeric,
   schemaWithDefinitions,
-  customBase
+  customBase,
+  template,
+  reference
 } from '../index';
 
 // Every size figure produced by the tests below; the last test checks that the README quotes none other
@@ -479,11 +481,9 @@ test('README: shared numeric definitions', () => {
     mm: { min: 0, max: 1000 },
     m: { min: 0, max: 100, precision: 0.01 }
   });
-  const Box = schemaWithDefinitions(
-    [length],
-    referenceNumeric('width', length),
-    referenceNumeric('height', length),
-    referenceNumeric('depth', 'length')
+  const Box = schema(referenceNumeric('width', length), referenceNumeric('height', length), referenceNumeric('depth', length));
+  expect(Box).toEqual(
+    schemaWithDefinitions([length], referenceNumeric('width', 'length'), referenceNumeric('height', 'length'), referenceNumeric('depth', 'length'))
   );
 
   const mm = { width: 120, height: 40, depth: 800 };
@@ -497,6 +497,17 @@ test('README: shared numeric definitions', () => {
   expect(validate(Box, { ...mm, height: 12.5 }).valid).toBe(false);
   expect(validate(Box, { $presets: { length: 'm' }, ...mm, height: 12.5 }).valid).toBe(false); // 800 > 100
   expect(validate(Box, { ...m, height: 40 }).valid).toBe(true);
+});
+
+// ===== Templates =====
+test('README: templates', () => {
+  const vec3 = template(object('vec3', fixed('x', -10, 10, 0.01), fixed('y', -10, 10, 0.01), fixed('z', -10, 10, 0.01)));
+  const Pose = schema(reference('position', vec3), reference('rotation', vec3));
+  const data = { position: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: -0.5 } };
+  const encoded = densing(Pose, data);
+  figure(encoded, data, calculateDenseDataSize(Pose, data).totalBits.toString());
+  expect(undensing(Pose, encoded)).toEqual(data);
+  expect(JSON.parse(JSON.stringify(Pose)).fields[0]).toEqual({ type: 'reference', name: 'position', ref: 0 });
 });
 
 // ===== Alphabets =====

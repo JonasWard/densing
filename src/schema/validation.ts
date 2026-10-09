@@ -1,7 +1,7 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 import { constantFieldValueError, lengthError } from '../values';
 import { resolveDenseFieldByName } from './resolve';
-import { ActivePresets, PRESETS_KEY, lookupNumeric, presetsErrors } from './definitions';
+import { ActivePresets, PRESETS_KEY, findTemplate, lookupNumeric, presetsErrors } from './definitions';
 
 export interface ValidationError {
   path: string;
@@ -47,7 +47,7 @@ export const validate = (schema: DenseSchema, data: any): ValidationResult => {
 
 /**
  * Validate one value against a field, appending to `errors`
- * @param schema - the root schema; needed to follow `pointer` and `reference_numeric` fields (without
+ * @param schema - the root schema; needed to follow `pointer`, `reference` and `reference_numeric` fields (without
  * it they are not checked)
  * @param presets - the active preset per definition (the data's `$presets`), default presets when not given
  */
@@ -192,6 +192,17 @@ const check = (field: DenseField, value: any, path: string, ctx: Context): void 
         return;
       }
       recurse(target, value, path);
+      return;
+    }
+
+    case 'reference': {
+      if (!schema) return; // cannot resolve without the root schema
+      const template = findTemplate(schema, field.ref);
+      if (!template) {
+        errors.push({ path, message: `template ${field.ref} does not exist` });
+        return;
+      }
+      recurse(template, value, path);
       return;
     }
 

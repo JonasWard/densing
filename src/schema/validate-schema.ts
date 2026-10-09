@@ -2,7 +2,7 @@ import { DenseField, DenseSchema, assertNeverDenseField } from '../schema-type';
 import { getDenseFieldBitWidthRange } from '../api';
 import { resolveDenseFieldByName } from './resolve';
 import { ValidationError, ValidationResult } from './validation';
-import { PRESETS_KEY, findDefinition, presetNames, schemaDefinitions } from './definitions';
+import { PRESETS_KEY, findDefinition, findTemplate, presetNames, schemaDefinitions, schemaTemplates } from './definitions';
 
 /**
  * Every field a pointer can resolve to, with its path, in the order `resolveDenseFieldByName`
@@ -36,6 +36,7 @@ const collectPointerCandidates = (
       case 'enum_array':
       case 'pointer':
       case 'reference_numeric':
+      case 'reference':
         break;
       default:
         assertNeverDenseField(field);
@@ -63,20 +64,44 @@ const collectPointerCandidates = (
  *   is one of them
  * - every `reference_numeric` field refers to an existing definition
  * - no top-level field is called `$presets`, the data key that selects the presets
+ *
+ * Template rules:
+ * - every `reference` field's `ref` is an index into `templates`
+ * - template names are unique, and every template is referenced (from the fields, or from a template
+ *   that is): templates exist only to be referenced
+ * - every template has a finite value, like a pointer target
+ * - templates are not pointer targets; pointers inside templates are checked like the others
  */
 export const validateSchema = (schema: DenseSchema): ValidationResult => {
   const errors: ValidationError[] = [];
   const candidates = collectPointerCandidates(schema.fields, '', []);
+  // the fields inside each template, with paths like `templates[0].x`
+  const templateCandidates = schemaTemplates(schema).map((template, i) =>
+    collectPointerCandidates([template], `templates[${i}]`, []).map(({ field, path }) => ({
+      field,
+      path: path.replace(`templates[${i}].${template.name}`, `templates[${i}]`)
+    }))
+  );
+  const allCandidates = [...candidates, ...templateCandidates.flat()];
 
-  validateDefinitions(schema, candidates, errors);
-  // the pointer checks below compute bit widths, which need every definition to resolve
+  validateDefinitions(schema, allCandidates, errors);
+  validateTemplates(schema, candidates, templateCandidates, errors);
+  // the checks below compute bit widths, which need every definition and template to resolve
   if (errors.length) return { valid: false, errors };
+
+  schemaTemplates(schema).forEach((template, i) => {
+    if (getDenseFieldBitWidthRange(template, schema).min === Infinity)
+      errors.push({
+        path: `templates[${i}]`,
+        message: `template "${template.name}" has no finite value: every path through it recurses forever`
+      });
+  });
 
   const byName = new Map<string, string[]>();
   for (const { field, path } of candidates) byName.set(field.name, [...(byName.get(field.name) ?? []), path]);
 
   const checkedTargets = new Set<DenseField>();
-  for (const { field, path } of candidates) {
+  for (const { field, path } of allCandidates) {
     if (field.type !== 'pointer') continue;
     const paths = byName.get(field.targetName) ?? [];
 
@@ -105,11 +130,7 @@ export const validateSchema = (schema: DenseSchema): ValidationResult => {
   return { valid: errors.length === 0, errors };
 };
 
-const validateDefinitions = (
-  schema: DenseSchema,
-  candidates: { field: DenseField; path: string }[],
-  errors: ValidationError[]
-) => {
+const validateDefinitions = (schema: DenseSchema, candidates: Candidate[], errors: ValidationError[]) => {
   const definitions = schemaDefinitions(schema);
   const seen = new Set<string>();
   definitions.forEach((definition, i) => {
@@ -131,6 +152,46 @@ const validateDefinitions = (
   for (const { field, path } of candidates)
     if (field.type === 'reference_numeric' && !findDefinition(schema, field.ref))
       errors.push({ path, message: `definition "${field.ref}" does not exist` });
+};
+
+type Candidate = { field: DenseField; path: string };
+
+const validateTemplates = (
+  schema: DenseSchema,
+  candidates: Candidate[],
+  templateCandidates: Candidate[][],
+  errors: ValidationError[]
+) => {
+  const templates = schemaTemplates(schema);
+  const seen = new Set<string>();
+  templates.forEach((template, i) => {
+    if (seen.has(template.name))
+      errors.push({ path: `templates[${i}]`, message: `duplicate template name "${template.name}"` });
+    seen.add(template.name);
+  });
+
+  let refsValid = true;
+  for (const { field, path } of [...candidates, ...templateCandidates.flat()])
+    if (field.type === 'reference' && !findTemplate(schema, field.ref)) {
+      errors.push({ path, message: `template ${field.ref} does not exist` });
+      refsValid = false;
+    }
+  if (!refsValid) return;
+
+  // templates reachable from the fields
+  const referenced = new Set<number>();
+  const visit = (list: Candidate[]) => {
+    for (const { field } of list)
+      if (field.type === 'reference' && !referenced.has(field.ref)) {
+        referenced.add(field.ref);
+        visit(templateCandidates[field.ref]);
+      }
+  };
+  visit(candidates);
+  templates.forEach((template, i) => {
+    if (!referenced.has(i))
+      errors.push({ path: `templates[${i}]`, message: `template "${template.name}" is never referenced` });
+  });
 };
 
 /** Throw when `validateSchema` reports an error */

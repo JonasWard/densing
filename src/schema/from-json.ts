@@ -11,8 +11,7 @@ import {
   optional,
   pointer,
   referenceNumeric,
-  schema,
-  schemaWithDefinitions,
+  schemaFromParts,
   union
 } from './builder';
 
@@ -29,7 +28,8 @@ const allowedKeys: Record<DenseField['type'], readonly string[]> = {
   optional: ['type', 'name', 'field', 'defaultValue'],
   object: ['type', 'name', 'fields'],
   pointer: ['type', 'name', 'targetName'],
-  reference_numeric: ['type', 'name', 'ref']
+  reference_numeric: ['type', 'name', 'ref'],
+  reference: ['type', 'name', 'ref']
 };
 
 const definitionKeys = ['name', 'presets', 'defaultPreset'];
@@ -147,6 +147,11 @@ const fieldFromJson = (json: unknown, path: string): DenseField => {
         return pointer(name, requireString(json, 'targetName', path));
       case 'reference_numeric':
         return referenceNumeric(name, requireString(json, 'ref', path));
+      case 'reference': {
+        const ref = requireNumber(json, 'ref', path);
+        if (!Number.isInteger(ref) || ref < 0) fail(path, '"ref" must be the index of a template');
+        return { type: 'reference', name, ref };
+      }
     }
   } catch (error) {
     // builder errors don't know where they are in the schema, re-throw them with the path
@@ -195,9 +200,9 @@ const definitionFromJson = (json: unknown, path: string): NumericDefinition => {
 
 /**
  * Load a schema from its JSON representation (e.g. the output of `JSON.stringify(schema)`)
- * Every field and definition is rebuilt with the builder helpers and the result with `schema()` /
- * `schemaWithDefinitions()`, so the same validation applies (including `validateSchema`'s pointer and
- * definition checks) and missing defaults are filled in
+ * Every field, template and definition is rebuilt with the builder helpers and the result checked
+ * like `schema()` does, so the same validation applies (including `validateSchema`'s pointer,
+ * definition and template checks) and missing defaults are filled in
  * @param input - the schema as JSON string or already parsed object
  * @returns `DenseSchema` - the validated schema
  * @throws if the input is not a valid schema, the message contains the path of the offending field
@@ -213,7 +218,7 @@ export const schemaFromJson = (input: unknown): DenseSchema => {
   }
 
   if (!isObject(json)) return fail('root', 'schema must be an object with a "fields" array');
-  failOnUnknownKeys(json, ['definitions', 'fields'], 'root');
+  failOnUnknownKeys(json, ['definitions', 'templates', 'fields'], 'root');
 
   let definitions: NumericDefinition[] | undefined;
   if (json.definitions !== undefined && json.definitions !== null) {
@@ -221,9 +226,12 @@ export const schemaFromJson = (input: unknown): DenseSchema => {
     definitions = json.definitions.map((d, i) => definitionFromJson(d, `definitions[${i}]`));
   }
 
+  let templates: DenseField[] | undefined;
+  if (json.templates !== undefined && json.templates !== null) templates = fieldsFromJson(json.templates, 'templates');
+
   const fields = fieldsFromJson(json.fields, 'fields');
   try {
-    return definitions ? schemaWithDefinitions(definitions, ...fields) : schema(...fields);
+    return schemaFromParts({ definitions, templates }, fields);
   } catch (error) {
     // whole-schema checks (duplicate top-level names, pointer targets), their messages carry the data path
     const message = error instanceof Error ? error.message : String(error);

@@ -46,7 +46,8 @@ Bun.plugin({
       const isBuilder = args.path.endsWith('builder.ts');
       const recordAs = isBuilder ? 'schema' : 'densing';
       let contents = readFileSync(args.path, 'utf8');
-      for (const name of isBuilder ? ['schema', 'schemaWithDefinitions'] : ['densing']) {
+      // `schemaFromParts` is what `schema()`, `schemaWithDefinitions()` and `schemaFromJson()` build with
+      for (const name of isBuilder ? ['schemaFromParts'] : ['densing']) {
         const declaration = `export const ${name} = `;
         if (!contents.includes(declaration)) throw new Error(`json round trip: "${declaration}" not found in ${args.path}`);
         contents =

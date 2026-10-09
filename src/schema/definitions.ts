@@ -1,10 +1,12 @@
-// definitions.ts - the numeric definitions `reference_numeric` fields refer to, and the preset of each
-// definition a payload selects. Shared by the codec, `validate()` and the size analysis.
+// definitions.ts - what `reference_numeric` and `reference` fields refer to: numeric definitions (and the
+// preset of each a payload selects) and templates. Shared by the codec, `validate()` and the size analysis.
 import {
+  DenseField,
   DenseSchema,
   FixedPointField,
   IntField,
   NumericDefinition,
+  ReferenceField,
   ReferenceNumericField
 } from '../schema-type';
 import type { ValidationError } from './validation';
@@ -127,4 +129,18 @@ export const presetsErrors = (schema: DenseSchema, value: unknown): ValidationEr
       errors.push({ path: `${PRESETS_KEY}.${definition.name}`, message: invalidPreset(definition, name) });
   }
   return errors;
+};
+
+export const schemaTemplates = (schema: DenseSchema): readonly DenseField[] => schema.templates ?? [];
+
+/** The template a `reference` field refers to, `undefined` when `ref` is not an index into `templates` */
+export const findTemplate = (schema: DenseSchema, ref: number): DenseField | undefined =>
+  Number.isInteger(ref) && ref >= 0 ? schemaTemplates(schema)[ref] : undefined;
+
+/** `findTemplate`, throwing when there is no schema or no such template */
+export const resolveTemplateOrThrow = (field: ReferenceField, schema: DenseSchema | undefined): DenseField => {
+  if (!schema) throw new Error(`reference field "${field.name}" requires schema context`);
+  const template = findTemplate(schema, field.ref);
+  if (!template) throw new Error(`reference field "${field.name}": template ${field.ref} does not exist`);
+  return template;
 };
