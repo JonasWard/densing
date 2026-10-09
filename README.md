@@ -42,6 +42,7 @@ The same data as JSON is 70 characters.
 | `object('config', ...fields)` | the sum of its fields |
 | `union('action', discriminator, variants)` | the discriminator, plus the chosen variant |
 | `pointer('child', 'node')` | whatever the target field takes |
+| `reference('position', vec3)` | whatever the template takes |
 | `referenceNumeric('width', length)` | the active preset of the definition |
 
 ## Examples
@@ -124,6 +125,23 @@ densing(ExpressionSchema, data); // "kAUAMAI" (40 bits)
 Pointer targets must be unique, and every recursion needs a way out (a union variant, an optional or
 an array that may be empty). `schema()` checks both.
 
+### Templates
+
+A `template` is a shape that is only used through `reference` fields. It is stored once, under the
+schema's `templates`, and never appears in the data itself:
+
+```typescript
+const vec3 = template(object('vec3', fixed('x', -10, 10, 0.01), fixed('y', -10, 10, 0.01), fixed('z', -10, 10, 0.01)));
+
+const Pose = schema(reference('position', vec3), reference('rotation', vec3));
+
+densing(Pose, { position: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: -0.5 } }); // "iZLCij6H0O2" (66 bits)
+```
+
+In the schema JSON a reference points at its template by index:
+`{ "type": "reference", "name": "position", "ref": 0 }`. A template that contains itself takes a
+function: `reference('child', () => node)`.
+
 ### Shared numeric definitions
 
 A `definition` declares a numeric range once, with one or more presets. Each payload stores which
@@ -135,12 +153,7 @@ const length = definition('length', {
   m: { min: 0, max: 100, precision: 0.01 }
 });
 
-const Box = schemaWithDefinitions(
-  [length],
-  referenceNumeric('width', length),
-  referenceNumeric('height', length),
-  referenceNumeric('depth', length)
-);
+const Box = schema(referenceNumeric('width', length), referenceNumeric('height', length), referenceNumeric('depth', length));
 
 densing(Box, { width: 120, height: 40, depth: 800 }); // "DwFGQA" (31 bits)
 densing(Box, { $presets: { length: 'm' }, width: 12.5, height: 0.4, depth: 80 }); // "icQBQ-gA" (43 bits)
@@ -230,7 +243,7 @@ densing size -s device.json               # static bit sizes of the schema
 Full reference in [API.md](./API.md); the wire format is specified in [FORMAT.md](./FORMAT.md).
 
 Schemas and data
-- `schema(...fields)`, `schemaWithDefinitions(definitions, ...fields)`
+- `schema(...fields)`; `schemaWithDefinitions(definitions, ...fields)` when `referenceNumeric` uses a definition's name
 - `densing(schema, data, base?)`, `undensing(schema, encoded, base?)`
 - `validate(schema, data)`, `validateSchema(schema)` (run by `schema()`)
 - `getDefaultData(schema)`, `generateTypes(schema, typeName?)`
@@ -242,6 +255,7 @@ Fields
 - `optional(name, field, default?)`, `array(name, minLength, maxLength, items)`
 - `enumArray(name, enumField, minLength, maxLength)`, `object(name, ...fields)`
 - `union(name, discriminator, variants)`, `pointer(name, targetName)`
+- `template(field)`, `reference(name, template)`
 - `definition(name, presets, defaultPreset?)`, `referenceNumeric(name, definition)`
 
 Introspection

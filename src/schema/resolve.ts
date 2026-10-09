@@ -37,6 +37,7 @@ const findFieldByName = (fields: DenseField[], targetName: string, visited: Set<
       case 'enum_array':
       case 'pointer':
       case 'reference_numeric':
+      case 'reference': // templates are not pointer targets
         break;
       default:
         assertNeverDenseField(field);

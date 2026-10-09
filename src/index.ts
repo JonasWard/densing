@@ -12,11 +12,14 @@ export {
   object,
   optional,
   pointer,
+  reference,
   referenceNumeric,
   schema,
   schemaWithDefinitions,
+  template,
   union
 } from './schema/builder';
+export type { BuiltSchema, Template } from './schema/builder';
 export type {
   ArrayField,
   BoolField,
@@ -32,6 +35,7 @@ export type {
   ObjectField,
   OptionalField,
   PointerField,
+  ReferenceField,
   ReferenceNumericField,
   UnionField
 } from './schema-type';

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.2] - 2026-10-09
+
+### Added
+
+- **Templates**: `template(field)` marks a reference-only shape and `reference(name, template)` uses it. `schema()` stores each template once under `templates` and gives every `reference` field the template's index (`{ "type": "reference", "name": "position", "ref": 0 }`); templates never appear in the data. A `reference` is encoded exactly as its template, so payloads are unchanged. Templates may refer to themselves (`reference('child', () => node)`) or to each other. Supported by `validate`, `getDefaultData`, `generateTypes` (a named type per template), the size analysis, `getFieldByPath`, `validateSchema` and `schemaFromJson`
+- **`schema()` collects numeric definitions**: `referenceNumeric(name, definition)` with the definition object no longer needs `schemaWithDefinitions`, which is still there for definitions referred to by name
+
+### Changed
+
+- `DenseField` and `FieldTypes` include the new `reference` type: code with an exhaustive `switch` over field types needs a case for it
+- `schema()` returns `BuiltSchema`, which may also carry `templates` and `definitions`. Fields that contain a `reference` are copies (with the template index filled in); the fields passed in are not changed
+
 ## [0.4.1] - 2026-10-08
 
 ### Added

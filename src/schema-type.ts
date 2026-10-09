@@ -10,7 +10,8 @@ export type DenseField =
   | OptionalField
   | ObjectField
   | PointerField
-  | ReferenceNumericField;
+  | ReferenceNumericField
+  | ReferenceField;
 
 export interface BoolField {
   type: 'bool';
@@ -96,6 +97,17 @@ export interface ReferenceNumericField {
   ref: string;
 }
 
+/**
+ * A value shaped like one of the schema's `templates`. Templates are only ever used through a
+ * reference: they are not values themselves and never appear in the data.
+ */
+export interface ReferenceField {
+  type: 'reference';
+  name: string;
+  /** index into `DenseSchema.templates` */
+  ref: number;
+}
+
 /** One preset of a `NumericDefinition`: an `int` without `precision`, a `fixed` with it */
 export interface NumericPreset {
   min: number;
@@ -118,6 +130,8 @@ export interface NumericDefinition {
 
 export interface DenseSchema {
   definitions?: NumericDefinition[];
+  /** reference-only shapes, used through `reference` fields (`ref` is the index) */
+  templates?: DenseField[];
   fields: DenseField[];
 }
 
@@ -133,7 +147,8 @@ export const FieldTypes = [
   'optional',
   'object',
   'pointer',
-  'reference_numeric'
+  'reference_numeric',
+  'reference'
 ] as const;
 
 /**
