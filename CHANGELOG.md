@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.4] - 2026-10-09
+
+### Added
+
+- `pointersToTemplates(schema)`: converts a pointer schema to templates. Every pointer target becomes a template, it and every pointer to it become `reference` fields (pointer chains are followed); data and encoded payloads stay exactly the same
+- CLI: `densing upgrade -s schema.json` prints the converted schema
+
+### Deprecated
+
+- `pointer` / `PointerField`: use `template` and `reference`, which mark the shared shape as reference-only and encode to the same bits. Pointers keep working in 0.4.x; removal is planned for 0.5.0
+
+### Changed
+
+- README: recursive structures are shown with templates
+
 ## [0.4.3] - 2026-10-09
 
 ### Added

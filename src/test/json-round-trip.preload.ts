@@ -98,10 +98,12 @@ afterAll(async () => {
   const { densing, undensing } = await import('../densing');
   const { getDefaultData } = await import('../schema/default-data');
   const { densingSchema, undensingSchema } = await import('../meta/schema-codec');
+  const { pointersToTemplates } = await import('../schema/migrate');
 
   const failures: string[] = [];
   const loadedSchemas = new Map<DenseSchema, DenseSchema>();
   const densedSchemas = new Map<DenseSchema, DenseSchema>();
+  const migratedSchemas = new Map<DenseSchema, DenseSchema>();
   const fail = (file: string, message: string) => failures.push(`${file}: ${message}`);
 
   for (const [original, file] of schemas) {
@@ -115,6 +117,17 @@ afterAll(async () => {
     loadedSchemas.set(original, loaded);
     if (!Bun.deepEquals(loaded, original))
       fail(file, `schema changes in the round trip: ${JSON.stringify(original).slice(0, 200)}`);
+
+    // pointer schemas converted to templates must encode every recorded payload the same way
+    if (JSON.stringify(original).includes('"type":"pointer"')) {
+      try {
+        const migrated = pointersToTemplates(original);
+        if (JSON.stringify(migrated).includes('"type":"pointer"')) fail(file, 'pointersToTemplates left a pointer');
+        else migratedSchemas.set(original, migrated);
+      } catch (error) {
+        fail(file, `pointersToTemplates throws: ${(error as Error).message}`);
+      }
+    }
 
     // the same through densingSchema -> undensingSchema, which must also be deterministic
     try {
@@ -148,6 +161,13 @@ afterAll(async () => {
       try {
         const reencoded = densing(loaded, data, base as string);
         if (reencoded !== encoded) fail(file, `"${encoded}" encodes as "${reencoded}" with the loaded schema`);
+        const migrated = migratedSchemas.get(original);
+        if (migrated) {
+          if (densing(migrated, data, base as string) !== encoded)
+            fail(file, `"${encoded}" encodes differently once pointers are templates`);
+          else if (!Bun.deepEquals(undensing(migrated, encoded, base as string), undensing(original, encoded, base as string)))
+            fail(file, `"${encoded}" decodes differently once pointers are templates`);
+        }
         const densed = densedSchemas.get(original);
         if (densed && densing(densed, data, base as string) !== encoded)
           fail(file, `"${encoded}" encodes differently with the undensed schema`);
@@ -160,7 +180,7 @@ afterAll(async () => {
   }
 
   console.log(
-    `\njson round trip: ${schemas.size} schemas (${densedSchemas.size} also through densingSchema), ${replayed} encodes replayed, ${failures.length} failures`
+    `\njson round trip: ${schemas.size} schemas (${densedSchemas.size} also through densingSchema, ${migratedSchemas.size} pointer schemas also as templates), ${replayed} encodes replayed, ${failures.length} failures`
   );
   if (failures.length) throw new Error(`json round trip failed:\n${failures.map((f) => `  ${f}`).join('\n')}`);
 });

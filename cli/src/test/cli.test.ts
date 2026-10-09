@@ -174,6 +174,18 @@ describe('schema commands', () => {
     expect(JSON.parse(stdout)).toEqual(schema(int('x', 3, 9)));
   });
 
+  test('upgrade turns pointers into templates', async () => {
+    const { stdout, code } = await run(['upgrade', '-s', file('expression.json')]);
+    expect(code).toBe(0);
+    const upgraded = JSON.parse(stdout);
+    expect(stdout).not.toContain('"pointer"');
+    expect(upgraded.templates).toHaveLength(1);
+    await writeFile(file('expression-upgraded.json'), stdout);
+    const data = JSON.stringify(expressionData);
+    const before = (await run(['encode', '-s', file('expression.json'), '-d', data])).stdout;
+    expect((await run(['encode', '-s', file('expression-upgraded.json'), '-d', data])).stdout).toBe(before);
+  });
+
   test('schema --dense prints the schema as a compact string', async () => {
     const { stdout } = await run(['schema', '-s', file('device.json'), '--dense']);
     expect(undensingSchema(stdout)).toEqual(DeviceSchema);

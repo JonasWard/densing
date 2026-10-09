@@ -10,6 +10,7 @@ import {
   generateTypes,
   getAllDenseSchemaPaths,
   getDefaultData,
+  pointersToTemplates,
   undensing,
   validate,
   type BaseSpec,
@@ -85,6 +86,10 @@ export const defaultsCommand = (schema: DenseSchema, compact = false): string =>
 export const typesCommand = (schema: DenseSchema, name = 'SchemaData'): string => generateTypes(schema, name);
 
 export const pathsCommand = (schema: DenseSchema): string => getAllDenseSchemaPaths(schema).join('\n');
+
+/** The schema with deprecated pointers turned into templates (same data, same payloads) */
+export const upgradeCommand = (schema: DenseSchema, compact = false): string =>
+  formatJson(pointersToTemplates(schema), compact);
 
 /** The schema with all defaults filled in, as JSON, or with `dense` as the compact string of `densingSchema` */
 export const schemaCommand = (schema: DenseSchema, compact = false, dense = false, base = 'base64url'): string =>
