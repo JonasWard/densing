@@ -26,6 +26,7 @@ Commands:
   types                         print TypeScript types for the schema
   paths                         print all field paths of the schema
   schema                        print the schema with all defaults filled in
+                                (--dense: as a compact string, see densingSchema)
 
 Input is read from stdin when it is "-" or omitted while piping.
 
@@ -35,6 +36,7 @@ Options:
   -b, --base <base>     base64url (default), baseQRCode45UrlSafe, binary or a custom alphabet
   -n, --name <name>     root type name for "types" (default: SchemaData)
   -c, --compact         print JSON on a single line
+      --dense           with "schema": print the schema as a compact string in --base
   -h, --help            show this help
   -v, --version         show the version
 
@@ -71,6 +73,7 @@ const parse = (argv: string[]) => {
         base: { type: 'string', short: 'b', default: 'base64url' },
         name: { type: 'string', short: 'n', default: 'SchemaData' },
         compact: { type: 'boolean', short: 'c', default: false },
+        dense: { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false }
       }
@@ -149,7 +152,7 @@ export const main = async (argv: string[], io: CliIO = defaultIO): Promise<numbe
         case 'paths':
           return pathsCommand(schema);
         case 'schema':
-          return schemaCommand(schema, values.compact);
+          return schemaCommand(schema, values.compact, values.dense, values.base);
       }
     })();
 

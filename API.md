@@ -257,6 +257,21 @@ schemaFromJson({ fields: [{ type: 'array', name: 'scores', minLength: 0, maxLeng
 // throws: Invalid schema at fields[0].items: int "score": max < min
 ```
 
+### `densingSchema(schema: DenseSchema, base?: BaseSpec): string`
+
+### `undensingSchema(encoded: string, base?: BaseSpec): DenseSchema`
+
+A whole schema (fields, templates, numeric definitions and all defaults) as a compact string, and
+back. `undensingSchema(densingSchema(s))` equals `s` for every schema the builders produce, and
+encoding is deterministic. `densingSchema` throws for a schema `validateSchema` rejects;
+`undensingSchema` throws a `DenseDecodeError` for a string that is not an encoded schema, or an
+"Invalid schema" error when it decodes to a schema the builders reject. The format is section 4 of
+FORMAT.md.
+
+```typescript
+undensingSchema(densingSchema(DeviceSchema)); // equal to DeviceSchema
+```
+
 ---
 
 ## Type Definitions

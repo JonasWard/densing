@@ -6,6 +6,7 @@ import {
   analyzeDenseSchemaSize,
   calculateDenseDataSize,
   densing,
+  densingSchema,
   generateTypes,
   getAllDenseSchemaPaths,
   getDefaultData,
@@ -85,4 +86,6 @@ export const typesCommand = (schema: DenseSchema, name = 'SchemaData'): string =
 
 export const pathsCommand = (schema: DenseSchema): string => getAllDenseSchemaPaths(schema).join('\n');
 
-export const schemaCommand = (schema: DenseSchema, compact = false): string => formatJson(schema, compact);
+/** The schema with all defaults filled in, as JSON, or with `dense` as the compact string of `densingSchema` */
+export const schemaCommand = (schema: DenseSchema, compact = false, dense = false, base = 'base64url'): string =>
+  dense ? densingSchema(schema, resolveBase(base)) : formatJson(schema, compact);

@@ -26,7 +26,9 @@ import {
   schemaWithDefinitions,
   customBase,
   template,
-  reference
+  reference,
+  densingSchema,
+  undensingSchema
 } from '../index';
 
 // Every size figure produced by the tests below; the last test checks that the README quotes none other
@@ -508,6 +510,20 @@ test('README: templates', () => {
   figure(encoded, data, calculateDenseDataSize(Pose, data).totalBits.toString());
   expect(undensing(Pose, encoded)).toEqual(data);
   expect(JSON.parse(JSON.stringify(Pose)).fields[0]).toEqual({ type: 'reference', name: 'position', ref: 0 });
+});
+
+// ===== Schemas as strings =====
+test('README: schemas as strings', () => {
+  const DeviceSchema = schema(
+    int('deviceId', 0, 1000),
+    bool('enabled'),
+    fixed('temperature', -40, 125, 0.1),
+    enumeration('mode', ['eco', 'normal', 'performance'])
+  );
+  const text = densingSchema(DeviceSchema);
+  expect(text.length).toBe(68);
+  expect(JSON.stringify(DeviceSchema).length).toBe(320);
+  expect(undensingSchema(text)).toEqual(DeviceSchema);
 });
 
 // ===== Alphabets =====

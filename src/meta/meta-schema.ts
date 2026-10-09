@@ -1,35 +1,6 @@
-import { DenseField, DenseSchema, FieldTypes } from '@/schema-type';
-import { bool, enumArray, enumeration, object, optional, union } from '../schema/builder';
+// meta-schema.ts - the names and options used in a schema. Encoding a whole schema lives in schema-codec.ts.
+import { DenseField, DenseSchema } from '@/schema-type';
 import { walkDenseSchema } from '../api';
-
-/**
- * numeric values
- */
-
-// prettier-ignore
-const metaDenseNumberHardcodedContent = enumeration('metaDenseNumberHardcodedContent', ['0','1','2','3','4','5','6','7','8','9']);
-
-// numbers are formatted as a special type
-const metaDenseNumberHardcoded = enumArray('metaDenseNumberHardcoded', metaDenseNumberHardcodedContent, 1, 8, ['0']);
-const metaDenseNumberExponentHardcoded = enumArray(
-  'metaDenseNumberExponentHardcoded',
-  metaDenseNumberHardcodedContent,
-  1,
-  4,
-  ['0']
-);
-
-const metaNegative = bool('metaNegative', false);
-
-const metaDenseInt = object('metaDenseInt', metaNegative, metaDenseNumberHardcoded);
-
-const metaDenseFixed = object(
-  'metaDenseNumber',
-  metaNegative,
-  metaDenseNumberHardcoded, // integer part
-  optional('decimalPart', metaDenseNumberHardcoded, null),
-  optional('exponentPart', object('exponentContent', metaNegative, metaDenseNumberExponentHardcoded), null)
-);
 
 const walkDenseSchemaField = (field: DenseField, namesAndOptions: Set<string>) => {
   // Always add the field name first
@@ -71,25 +42,3 @@ export const getAllUniqueNamesAndOptions = (schema: DenseSchema): Set<string> =>
   walkDenseSchema(schema, (field) => walkDenseSchemaField(field, namesAndOptions));
   return namesAndOptions;
 };
-
-/**
- * object type attributes
- */
-const metaObjectType = union('metaObjectType', enumeration('type', FieldTypes), {
-  bool: [],
-  int: [],
-  enum: [],
-  fixed: [],
-  array: [],
-  enum_array: [],
-  union: [],
-  optional: [],
-  object: [],
-  pointer: [],
-  reference_numeric: [],
-  reference: []
-} as Record<DenseField['type'], DenseField[]>);
-
-// ToDo for text
-// collect all unique characters for: 'name' & 'options', store them as UTF-8 encoded string and store the length of its bitwidth
-// for all 'name' & 'options', map them to the index of the character in the sorted string, store the length of its character count and store all the indexes in an enum array (options are the collected characters)

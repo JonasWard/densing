@@ -1,5 +1,10 @@
 // benchmark.ts - Performance benchmarks for densing library
+import zlib from 'node:zlib';
 import { schema, int, bool, fixed, enumeration, object, array, optional, densing, undensing } from './src/index';
+import { DenseField } from './src/schema-type';
+import { densingSchema, undensingSchema } from './src/meta/schema-codec';
+import { schemaSamples } from './src/test/fixtures/schema-samples';
+import { GLSLRayMarchingSchema } from './src/test/fixtures/glsl-ray-marching';
 
 // Simple schema - just a few basic fields
 const SimpleSchema = schema(
@@ -169,5 +174,65 @@ benchmark(
   },
   100000
 );
+
+// Schema encoding: size against the alternatives, and speed
+console.log('--- Schema encoding (densingSchema / undensingSchema) ---');
+
+/** Median time of `runs` calls, in µs */
+const median = (fn: () => void, runs = 1000): number => {
+  for (let i = 0; i < 50; i++) fn();
+  const times: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const start = performance.now();
+    fn();
+    times.push(performance.now() - start);
+  }
+  times.sort((a, b) => a - b);
+  return times[Math.floor(runs / 2)] * 1000;
+};
+
+const b64Length = (bytes: number) => Math.ceil((bytes * 8) / 6);
+const percentSmaller = (ours: number, other: number) => `${Math.round((1 - ours / other) * 100)}%`;
+console.table(
+  Object.entries(schemaSamples).map(([name, { schema: s }]) => {
+    const encoded = densingSchema(s);
+    const json = JSON.stringify(s);
+    const brotli = b64Length(
+      zlib.brotliCompressSync(Buffer.from(json), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length
+    );
+    return {
+      schema: name,
+      chars: encoded.length,
+      'JSON chars': json.length,
+      'vs URL-encoded JSON': percentSmaller(encoded.length, encodeURIComponent(json).length),
+      'vs base64(brotli)': percentSmaller(encoded.length, brotli),
+      'encode µs': median(() => densingSchema(s)).toFixed(0),
+      'decode µs': median(() => undensingSchema(encoded)).toFixed(0)
+    };
+  })
+);
+
+// scaling: ten renamed copies of the GLSL schema, so every name is new
+const renamed = (field: DenseField, suffix: string): DenseField => {
+  const copy = { ...field, name: `${field.name} ${suffix}` } as DenseField;
+  if (copy.type === 'object') copy.fields = copy.fields.map((f) => renamed(f, suffix));
+  if (copy.type === 'optional') copy.field = renamed(copy.field, suffix);
+  if (copy.type === 'array') copy.items = renamed(copy.items, suffix);
+  return copy;
+};
+const largeSchema = schema(
+  ...Array.from({ length: 10 }, (_, i) => object(`copy ${i}`, ...GLSLRayMarchingSchema.fields.map((f) => renamed(f, `#${i}`))))
+);
+const glslEncoded = densingSchema(GLSLRayMarchingSchema);
+const largeEncoded = densingSchema(largeSchema);
+const glslTime = median(() => undensingSchema(densingSchema(GLSLRayMarchingSchema)), 300);
+const largeTime = median(() => undensingSchema(densingSchema(largeSchema)), 30);
+console.log(
+  `GLSL: encode ${median(() => densingSchema(GLSLRayMarchingSchema)).toFixed(0)}µs, decode ${median(() => undensingSchema(glslEncoded)).toFixed(0)}µs`
+);
+console.log(
+  `10x GLSL (${largeEncoded.length} chars): round trip ${(largeTime / 1000).toFixed(2)}ms = ${(largeTime / glslTime).toFixed(1)}x the GLSL round trip`
+);
+console.log('');
 
 console.log('=== Benchmark Complete ===');

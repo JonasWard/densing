@@ -43,6 +43,7 @@ export { FieldTypes } from './schema-type';
 
 // Encoding and decoding
 export { densing, undensing } from './densing';
+export { densingSchema, undensingSchema } from './meta/schema-codec';
 export { DenseDecodeError, DenseEncodeError } from './errors';
 export { MAX_FIELD_BITS, PRECISION_ALIGNMENT_TOLERANCE } from './values';
 
