@@ -80,6 +80,7 @@ export interface ObjectField {
   fields: DenseField[];
 }
 
+/** @deprecated Use templates (`ReferenceField`); see `pointer()` */
 export interface PointerField {
   type: 'pointer';
   name: string;

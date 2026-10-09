@@ -52,6 +52,7 @@ export { validate, validateField } from './schema/validation';
 export type { ValidationError, ValidationResult } from './schema/validation';
 export { validateSchema } from './schema/validate-schema';
 export { schemaFromJson } from './schema/from-json';
+export { pointersToTemplates } from './schema/migrate';
 export { getDefaultData } from './schema/default-data';
 export { generateTypes, printTypes } from './schema/type-generator';
 

@@ -28,7 +28,9 @@ import {
   template,
   reference,
   densingSchema,
-  undensingSchema
+  undensingSchema,
+  pointersToTemplates,
+  type Template
 } from '../index';
 
 // Every size figure produced by the tests below; the last test checks that the README quotes none other
@@ -363,13 +365,23 @@ test('Custom Bases', () => {
 
 // ===== Recursive Structures Example =====
 test('Recursive Structures', () => {
-  const ExpressionSchema = schema(
+  const expr: Template = template(
+    union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+      number: [int('value', 0, 1000)],
+      add: [reference('left', () => expr), reference('right', () => expr)],
+      multiply: [reference('left', () => expr), reference('right', () => expr)]
+    })
+  );
+  const ExpressionSchema = schema(reference('expr', expr));
+  // the deprecated pointer form converts to exactly this schema
+  const PointerSchema = schema(
     union('expr', enumeration('type', ['number', 'add', 'multiply']), {
       number: [int('value', 0, 1000)],
       add: [pointer('left', 'expr'), pointer('right', 'expr')],
       multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
     })
   );
+  expect(pointersToTemplates(PointerSchema)).toEqual(ExpressionSchema);
 
   // Encode: (5 + 3) * 2
   const data = {
@@ -387,6 +399,7 @@ test('Recursive Structures', () => {
   const encoded = densing(ExpressionSchema, data);
   const decoded = undensing(ExpressionSchema, encoded);
   expect(decoded).toEqual(data);
+  expect(densing(PointerSchema, data)).toBe(encoded);
   const sizeInfo = calculateDenseDataSize(ExpressionSchema, data);
   console.log(`Recursive structure: ${figure(encoded, data, sizeInfo.totalBits.toString())}`);
 });

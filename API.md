@@ -225,6 +225,10 @@ console.log(paths);
 Checks the rules that depend on the whole schema. `schema()` runs it and throws on the first error;
 call it yourself for schemas built by hand or loaded from JSON.
 
+Pointers are deprecated (removal planned for 0.5.0): templates express the same schemas with the
+same bits. `pointersToTemplates(schema)` converts a schema: every pointer target becomes a template,
+it and every pointer to it become `reference` fields, and data and payloads stay the same.
+
 - every `pointer` target exists
 - every `pointer` target name is unique among the fields a pointer can refer to (object fields,
   union variant fields, array items, optional inner fields), so the target never depends on

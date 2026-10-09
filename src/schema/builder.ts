@@ -213,6 +213,12 @@ export const object = (name: string, ...fields: DenseField[]): ObjectField => {
  * Pointer Field Helpers
  * ========================= */
 
+/**
+ * A value shaped like the field called `targetName`.
+ * @deprecated Use `template()` and `reference()`, which mark the shared shape as reference-only and
+ * encode to the same bits; `pointersToTemplates()` (or `densing upgrade`) converts existing schemas.
+ * Pointers keep working in 0.4.x and will be removed in 0.5.0.
+ */
 export const pointer = (name: string, targetName: string): PointerField => {
   return {
     type: 'pointer',

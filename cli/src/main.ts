@@ -9,6 +9,7 @@ import {
   schemaCommand,
   sizeCommand,
   typesCommand,
+  upgradeCommand,
   validateCommand
 } from './commands';
 import { CliError, loadSchema, parseJson, readStdin, readText } from './io';
@@ -27,6 +28,7 @@ Commands:
   paths                         print all field paths of the schema
   schema                        print the schema with all defaults filled in
                                 (--dense: as a compact string, see densingSchema)
+  upgrade                       print the schema with pointers turned into templates
 
 Input is read from stdin when it is "-" or omitted while piping.
 
@@ -42,7 +44,7 @@ Options:
 
 Exit codes: 0 ok, 1 invalid data / decode error, 2 usage / schema error`;
 
-const commands = ['encode', 'decode', 'validate', 'size', 'defaults', 'types', 'paths', 'schema'] as const;
+const commands = ['encode', 'decode', 'validate', 'size', 'defaults', 'types', 'paths', 'schema', 'upgrade'] as const;
 type Command = (typeof commands)[number];
 const inputCommands: readonly Command[] = ['encode', 'decode', 'validate', 'size'];
 
@@ -153,6 +155,8 @@ export const main = async (argv: string[], io: CliIO = defaultIO): Promise<numbe
           return pathsCommand(schema);
         case 'schema':
           return schemaCommand(schema, values.compact, values.dense, values.base);
+        case 'upgrade':
+          return upgradeCommand(schema, values.compact);
       }
     })();
 

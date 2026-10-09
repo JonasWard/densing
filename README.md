@@ -41,8 +41,8 @@ The same data as JSON is 70 characters.
 | `enumArray('tags', enumField, 0, 5)` | length, plus the values packed as one base-n number |
 | `object('config', ...fields)` | the sum of its fields |
 | `union('action', discriminator, variants)` | the discriminator, plus the chosen variant |
-| `pointer('child', 'node')` | whatever the target field takes |
 | `reference('position', vec3)` | whatever the template takes |
+| `pointer('child', 'node')` (deprecated) | whatever the target field takes |
 | `referenceNumeric('width', length)` | the active preset of the definition |
 
 ## Examples
@@ -97,34 +97,6 @@ const ColorSchema = schema(enumArray('palette', enumeration('color', ['R', 'G', 
 densing(ColorSchema, { palette: ['R', 'G', 'B', 'R', 'R'] }); // "Ut" (12 bits)
 ```
 
-### Recursive structures
-
-A `pointer` refers to another field by name:
-
-```typescript
-const ExpressionSchema = schema(
-  union('expr', enumeration('type', ['number', 'add', 'multiply']), {
-    number: [int('value', 0, 1000)],
-    add: [pointer('left', 'expr'), pointer('right', 'expr')],
-    multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
-  })
-);
-
-// (5 + 3) * 2
-const data = {
-  expr: {
-    type: 'multiply',
-    left: { type: 'add', left: { type: 'number', value: 5 }, right: { type: 'number', value: 3 } },
-    right: { type: 'number', value: 2 }
-  }
-};
-
-densing(ExpressionSchema, data); // "kAUAMAI" (40 bits)
-```
-
-Pointer targets must be unique, and every recursion needs a way out (a union variant, an optional or
-an array that may be empty). `schema()` checks both.
-
 ### Templates
 
 A `template` is a shape that is only used through `reference` fields. It is stored once, under the
@@ -139,8 +111,43 @@ densing(Pose, { position: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: -0.5 
 ```
 
 In the schema JSON a reference points at its template by index:
-`{ "type": "reference", "name": "position", "ref": 0 }`. A template that contains itself takes a
-function: `reference('child', () => node)`.
+`{ "type": "reference", "name": "position", "ref": 0 }`.
+
+### Recursive structures
+
+A template can contain itself through a function, since it does not exist yet while it is built:
+
+```typescript
+const expr: Template = template(
+  union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+    number: [int('value', 0, 1000)],
+    add: [reference('left', () => expr), reference('right', () => expr)],
+    multiply: [reference('left', () => expr), reference('right', () => expr)]
+  })
+);
+const ExpressionSchema = schema(reference('expr', expr));
+
+// (5 + 3) * 2
+const data = {
+  expr: {
+    type: 'multiply',
+    left: { type: 'add', left: { type: 'number', value: 5 }, right: { type: 'number', value: 3 } },
+    right: { type: 'number', value: 2 }
+  }
+};
+
+densing(ExpressionSchema, data); // "kAUAMAI" (40 bits)
+```
+
+Every recursion needs a way out (a union variant, an optional or an array that may be empty);
+`schema()` checks it.
+
+### Pointers (deprecated)
+
+`pointer('left', 'expr')` refers to another field by name and is encoded as that field. Templates
+replace it: they mark the shared shape as reference-only and give the same bits.
+`pointersToTemplates(schema)` (or `densing upgrade -s schema.json`) converts a pointer schema without
+changing its data or payloads. Pointers keep working in 0.4.x and will be removed in 0.5.0.
 
 ### Shared numeric definitions
 
@@ -269,8 +276,8 @@ Fields
 - `bool(name, default?)`, `enumeration(name, options, default?)`
 - `optional(name, field, default?)`, `array(name, minLength, maxLength, items)`
 - `enumArray(name, enumField, minLength, maxLength)`, `object(name, ...fields)`
-- `union(name, discriminator, variants)`, `pointer(name, targetName)`
-- `template(field)`, `reference(name, template)`
+- `union(name, discriminator, variants)`
+- `template(field)`, `reference(name, template)`; `pointer(name, targetName)` is deprecated, see `pointersToTemplates(schema)`
 - `definition(name, presets, defaultPreset?)`, `referenceNumeric(name, definition)`
 
 Introspection
