@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.3] - 2026-10-09
+
+### Added
+
+- **Schemas as strings**: `densingSchema(schema, base?)` packs a whole schema (fields, templates, numeric definitions, all defaults) into a compact string; `undensingSchema(encoded, base?)` reads it back and checks it like `schemaFromJson`. Names and options may use any Unicode script: each schema stores the code points it uses once, and every string as digits over that set, with back-references for repeats and copied prefixes / suffixes. Across the test schemas the result is 83–92% shorter than URL-encoded JSON and 21–68% shorter than base64 of brotli-compressed JSON. Format: FORMAT.md section 4
+- CLI: `densing schema -s schema.json --dense` prints the encoded schema
+
+### Changed
+
+- **Faster encoding and decoding of large payloads**: `BitWriter` collects bits in chunks and `BitReader` reads from the bit string instead of shifting one BigInt per field, and power-of-two alphabets (binary, hex, base64url) convert in linear time. In the benchmarks decoding is 1.3–2× faster and encoding −8% to +46% (small payloads pay a little for the chunking); payloads are unchanged
+- `src/meta/meta-schema.ts`: the unused meta-schema sketches were removed
+
 ## [0.4.2] - 2026-10-09
 
 ### Added
