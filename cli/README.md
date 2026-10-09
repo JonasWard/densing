@@ -8,7 +8,7 @@ npm install -g densing-cli
 npx densing-cli --help
 ```
 
-The installed command is called `densing`. It runs on Node.js 18.3 or newer and has no dependencies, because the matching densing version is bundled in. `densing-cli@0.4.2` contains `densing@0.4.2`.
+The installed command is called `densing`. It runs on Node.js 18.3 or newer and has no dependencies, because the matching densing version is bundled in. `densing-cli@0.4.3` contains `densing@0.4.3`.
 
 ## Schemas
 
@@ -58,7 +58,7 @@ densing <command> -s <schema.json> [input] [options]
 | `defaults` | – | the default data of the schema |
 | `types` | – | TypeScript types for the schema |
 | `paths` | – | all field paths, one per line |
-| `schema` | – | the schema with all defaults filled in |
+| `schema` | – | the schema with all defaults filled in; with `--dense` the schema as a compact string (`densingSchema`, in `--base`) |
 
 | Option | |
 | --- | --- |

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { schema, int, bool, fixed, enumeration, union, pointer } from 'densing';
+import { schema, int, bool, fixed, enumeration, union, pointer, undensingSchema } from 'densing';
 import { main, type CliIO } from '../main';
 import { version } from '../../package.json';
 
@@ -172,6 +172,14 @@ describe('schema commands', () => {
   test('schema fills in defaults', async () => {
     const { stdout } = await run(['schema', '-s', '-'], '{"fields":[{"type":"int","name":"x","min":3,"max":9}]}');
     expect(JSON.parse(stdout)).toEqual(schema(int('x', 3, 9)));
+  });
+
+  test('schema --dense prints the schema as a compact string', async () => {
+    const { stdout } = await run(['schema', '-s', file('device.json'), '--dense']);
+    expect(undensingSchema(stdout)).toEqual(DeviceSchema);
+    expect(stdout.length).toBeLessThan(JSON.stringify(DeviceSchema).length / 3);
+    const binary = (await run(['schema', '-s', file('device.json'), '--dense', '-b', 'binary'])).stdout;
+    expect(undensingSchema(binary, 'binary')).toEqual(DeviceSchema);
   });
 });
 

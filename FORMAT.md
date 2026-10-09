@@ -136,3 +136,69 @@ binary  (k = 1): 000110
 hex     (k = 4): 0001 1000 → "18"   (two padding bits)
 base64  (k = 6): 000110    → "G"
 ```
+
+## 4. Schema encoding
+
+`densingSchema` writes a whole schema into one bit stream, turned into text as in section 3.
+
+### Numbers
+
+- `U(n)`: a non-negative integer, as the Elias delta code of `n + 1`: `L` = bit length of `n + 1`,
+  then `bitlength(L) - 1` zero bits, `L` in `bitlength(L)` bits, and `n + 1` without its leading 1
+  bit in `L - 1` bits. `0` is 1 bit, `1`–`2` are 4 bits, up to 2^53 − 1.
+- `I(n)`: a sign bit (`1` for negative numbers and −0), then `U(|n|)`.
+- `F(x)`: 64 bits, the IEEE 754 double.
+- `exact(…)`: a flag bit; `0`: the value follows in its compact form, `1`: it follows as `F`.
+
+### Layout
+
+| part | content |
+|---|---|
+| header | version (3 bits, `0`), has `definitions` (1 bit), has `templates` (1 bit), back-references on (1 bit), affixes on (1 bit) |
+| alphabet | `U(count)`, then the distinct code points of all strings in ascending order, each as `U(gap)`: the first as `U(cp)`, the others as `U(cp − previous − 1)` |
+| definitions | when present: `U(count)`, each definition: name `S`, `U(presets − 1)`, each preset: name `S`, a bit (`1` = fixed), the numbers as for `int` / `fixed` below; then the default preset: `0`, or `1` + its index |
+| templates | when present: `U(count)`, each a field |
+| fields | `U(count)`, each a field |
+| optional defaults | for every `optional` whose default is stored after the structure, in the order of the fields (templates first, depth first, union variants in option order): the value densed with the inner field, or its JSON text as `S` |
+
+An index into a list of `n` entries takes `bits(n)` bits (section 1).
+
+### Strings (`S`)
+
+Every string is a list of Unicode code points (not UTF-16 units), never normalised. Strings are
+numbered in the order they first appear. A string slot is:
+
+1. with back-references on and earlier strings: 1 bit; `1` = a repeat, followed by the index of the
+   earlier string (end of slot)
+2. with affixes on and earlier strings: 1 bit; `1` = it starts (`0`) or ends (`1`) with the first or last
+   `shared` code points of an earlier string: index, the start/end bit, `U(shared − 3)`
+3. `U(length)` of the remaining code points, then their alphabet indices as one base-`alphabet` number
+   in `bits(alphabet^length)` bits, the first code point as the most significant digit (as for
+   `enum_array` content); an affix taken from the start goes before them, one from the end after them
+
+The encoder picks the combination of the two switches that gives the fewest bits.
+
+### Fields
+
+A field is its type as an index into `bool, int, enum, fixed, array, enum_array, union, optional,
+object, pointer, reference_numeric, reference` (4 bits), its name `S`, and then:
+
+| type | content |
+|---|---|
+| `bool` | the default (1 bit) |
+| `int` | `I(min)`, `U(max − min)`, the default: `0` = `min`, or `1` + `default − min` in `bits(max − min + 1)` bits |
+| `fixed` | `exact(U(round(1 / precision) − 1))`, `exact(I(min steps))`, `exact(U(max steps − min steps))`, the default: `0` = `min`, or `1` + `exact(steps above min)` |
+| `enum` | (no second name) `U(options − 2)`, each option `S`, the default: `0` = first option, or `1` + its index |
+| `enum_array` | the enum as name `S` + enum content, `U(minLength)`, `U(maxLength − minLength)`, the default: `0` = `minLength` times the enum default, or `1` + length − minLength + each index |
+| `array` | `U(minLength)`, `U(maxLength − minLength)`, the item field |
+| `object` | `U(count)`, the fields |
+| `union` | the discriminator as name `S` + enum content, then for every option in order `U(count)` and the variant's fields |
+| `optional` | the default (2 bits: `0` none, `1` null, `2` densed after the structure, `3` JSON after the structure), the inner field |
+| `pointer` | the target name `S` |
+| `reference_numeric` | the index of the definition |
+| `reference` | the index of the template |
+
+A decoder rejects (`DenseDecodeError`): an unknown version or field type, indices past their list,
+code points above U+10FFFF, counts and lengths larger than the input left, numbers above 2^53 − 1,
+nesting deeper than 256, and anything after the last field other than zero padding.
+

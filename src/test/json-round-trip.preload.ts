@@ -9,6 +9,7 @@ import type { DenseSchema } from '../schema-type';
 type Recorder = (name: 'schema' | 'densing', args: unknown[], result: unknown) => void;
 declare global {
   var __densingJsonRecorder: Recorder | undefined;
+  var __densingUndensing: ((delta: number) => number) | undefined;
 }
 
 const MAX_ENCODES_PER_SCHEMA = 25;
@@ -22,8 +23,14 @@ const testFile = (): string =>
     .map((line) => line.match(/src\/test\/[^/:]+\.test\.ts/)?.[0])
     .find(Boolean) ?? 'unknown test file';
 
+let undensingDepth = 0;
+globalThis.__densingUndensing = (delta: number) => (undensingDepth += delta);
+
 globalThis.__densingJsonRecorder = (name, args, result) => {
   if (name === 'schema') {
+    // schemas decoded by undensingSchema come from the fuzz tests (random but valid, e.g. with -0, which
+    // JSON cannot hold); schema-codec.test.ts checks those itself
+    if (undensingDepth > 0) return;
     if (!schemas.has(result as DenseSchema)) schemas.set(result as DenseSchema, testFile());
     return;
   }
@@ -42,6 +49,25 @@ globalThis.__densingJsonRecorder = (name, args, result) => {
 Bun.plugin({
   name: 'densing-json-round-trip',
   setup(build) {
+    // schemas built while undensingSchema runs are not recorded (see the recorder)
+    build.onLoad({ filter: /\/src\/meta\/schema-codec\.ts$/ }, (args) => {
+      const declaration = 'export const undensingSchema = ';
+      const source = readFileSync(args.path, 'utf8');
+      if (!source.includes(declaration)) throw new Error(`json round trip: "${declaration}" not found in ${args.path}`);
+      return {
+        loader: 'ts',
+        contents:
+          source.replace(declaration, 'const __original_undensingSchema = ') +
+          `\nexport const undensingSchema = (...args: any[]) => {` +
+          `\n  globalThis.__densingUndensing?.(1);` +
+          `\n  try {` +
+          `\n    return (__original_undensingSchema as any)(...args);` +
+          `\n  } finally {` +
+          `\n    globalThis.__densingUndensing?.(-1);` +
+          `\n  }` +
+          `\n};\n`
+      };
+    });
     build.onLoad({ filter: /\/src\/(schema\/builder|densing)\.ts$/ }, (args) => {
       const isBuilder = args.path.endsWith('builder.ts');
       const recordAs = isBuilder ? 'schema' : 'densing';
@@ -71,9 +97,11 @@ afterAll(async () => {
   const { schemaFromJson } = await import('../schema/from-json');
   const { densing, undensing } = await import('../densing');
   const { getDefaultData } = await import('../schema/default-data');
+  const { densingSchema, undensingSchema } = await import('../meta/schema-codec');
 
   const failures: string[] = [];
   const loadedSchemas = new Map<DenseSchema, DenseSchema>();
+  const densedSchemas = new Map<DenseSchema, DenseSchema>();
   const fail = (file: string, message: string) => failures.push(`${file}: ${message}`);
 
   for (const [original, file] of schemas) {
@@ -87,6 +115,18 @@ afterAll(async () => {
     loadedSchemas.set(original, loaded);
     if (!Bun.deepEquals(loaded, original))
       fail(file, `schema changes in the round trip: ${JSON.stringify(original).slice(0, 200)}`);
+
+    // the same through densingSchema -> undensingSchema, which must also be deterministic
+    try {
+      const dense = densingSchema(original);
+      const undensed = undensingSchema(dense);
+      densedSchemas.set(original, undensed);
+      if (!Bun.deepEquals(undensed, original))
+        fail(file, `schema changes in the dense round trip: ${JSON.stringify(original).slice(0, 200)}`);
+      else if (densingSchema(undensed) !== dense) fail(file, `re-encoding the undensed schema differs: ${dense}`);
+    } catch (error) {
+      fail(file, `dense schema round trip throws: ${(error as Error).message}`);
+    }
 
     let defaults: unknown;
     try {
@@ -108,6 +148,9 @@ afterAll(async () => {
       try {
         const reencoded = densing(loaded, data, base as string);
         if (reencoded !== encoded) fail(file, `"${encoded}" encodes as "${reencoded}" with the loaded schema`);
+        const densed = densedSchemas.get(original);
+        if (densed && densing(densed, data, base as string) !== encoded)
+          fail(file, `"${encoded}" encodes differently with the undensed schema`);
         else if (!Bun.deepEquals(undensing(loaded, encoded, base as string), undensing(original, encoded, base as string)))
           fail(file, `"${encoded}" decodes differently with the loaded schema`);
       } catch (error) {
@@ -117,7 +160,7 @@ afterAll(async () => {
   }
 
   console.log(
-    `\njson round trip: ${schemas.size} schemas, ${replayed} encodes replayed, ${failures.length} failures`
+    `\njson round trip: ${schemas.size} schemas (${densedSchemas.size} also through densingSchema), ${replayed} encodes replayed, ${failures.length} failures`
   );
   if (failures.length) throw new Error(`json round trip failed:\n${failures.map((f) => `  ${f}`).join('\n')}`);
 });

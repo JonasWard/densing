@@ -213,6 +213,20 @@ schemaFromJson({ fields: [{ type: 'int', name: 'age', min: 120, max: 0 }] });
 // throws: Invalid schema at fields[0]: int "age": max < min
 ```
 
+## Schemas as strings
+
+`densingSchema` packs a whole schema into a short string, so a URL can carry the schema next to its data:
+
+```typescript
+const text = densingSchema(DeviceSchema); // 68 characters, the JSON is 320
+undensingSchema(text); // equal to DeviceSchema
+```
+
+Names and options may use any script (`Größe`, `température`, `θ₀`, `温度`, `🌡️`): each schema stores the
+characters it uses once, and every name as digits over that set. Across the test schemas the result
+is 83–92% shorter than URL-encoded JSON and 21–68% shorter than base64 of brotli-compressed JSON.
+`undensingSchema` checks the result like `schemaFromJson` does.
+
 ## Alphabets
 
 ```typescript
@@ -236,6 +250,7 @@ npm install -g densing-cli
 densing encode -s device.json data.json   # Cqnu
 densing decode -s device.json Cqnu        # {"deviceId": 42, ...}
 densing size -s device.json               # static bit sizes of the schema
+densing schema -s device.json --dense     # the schema itself as a compact string
 ```
 
 ## API
@@ -247,7 +262,7 @@ Schemas and data
 - `densing(schema, data, base?)`, `undensing(schema, encoded, base?)`
 - `validate(schema, data)`, `validateSchema(schema)` (run by `schema()`)
 - `getDefaultData(schema)`, `generateTypes(schema, typeName?)`
-- `schemaFromJson(json)`, `customBase(alphabet)`
+- `schemaFromJson(json)`, `densingSchema(schema, base?)`, `undensingSchema(encoded, base?)`, `customBase(alphabet)`
 
 Fields
 - `int(name, min, max, default?)`, `fixed(name, min, max, precision, default?)`
