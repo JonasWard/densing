@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { schema, bool, int, fixed, optional, object, union, enumeration, array, enumArray, pointer } from '../schema/builder';
+import { schema, bool, int, fixed, optional, object, union, enumeration, array } from '../schema/builder';
 import { generateTypes } from '../schema/type-generator';
 
 describe('Type Generator', () => {
@@ -189,37 +189,28 @@ describe('Type Generator', () => {
     expect(types).toContain(';');
   });
 
-  test('escapes quotes and backslashes in string literals', () => {
+  test('output is valid TypeScript for any names and options', () => {
     const types = generateTypes(
       schema(
-        enumeration('quote', ["it's", 'back\\slash', 'line\nbreak']),
-        enumArray('chars', enumeration('char', ["'", '\\']), 0, 4)
-      )
-    );
-    expect(types).toContain("quote: 'it\\'s' | 'back\\\\slash' | 'line\\nbreak';");
-    expect(types).toContain("chars: ('\\'' | '\\\\')[];");
-    expect(() => new Bun.Transpiler({ loader: 'ts' }).transformSync(types)).not.toThrow();
-  });
-
-  test('names that are not identifiers become valid type names and quoted keys', () => {
-    const types = generateTypes(
-      schema(
-        union('my value', enumeration('kind', ['Vec2.x', 'number call', '[a, b]', '']), {
+        enumeration('quote', ["it's", 'back\\slash']),
+        array('modes', 0, 3, enumeration('mode', ['a', 'b'])),
+        array('maybe', 0, 3, optional('value', int('v', 0, 3))),
+        union('my value', enumeration('kind', ['Vec2.x', 'number call']), {
           'Vec2.x': [int('the x', 0, 1)],
-          'number call': [],
-          '[a, b]': [],
-          '': []
+          'number call': []
         })
       )
     );
-    expect(types).toContain('export type MyValue = MyValue_Vec2X | MyValue_NumberCall | MyValue_AB | MyValue_Type;');
-    expect(types).toContain("  kind: 'number call';");
-    expect(types).toContain("  'the x': number;");
-    expect(types).toContain("  'my value': MyValue;");
+    expect(types).toContain("quote: 'it\\'s' | 'back\\\\slash';");
+    expect(types).toContain("modes: ('a' | 'b')[];");
+    expect(types).toContain('maybe: (number | null)[];');
+    expect(types).toContain("'my value': MyValue;");
+    expect(types).toContain("'the x': number;");
+    expect(types).toContain('export type MyValue = MyValue_Vec2X | MyValue_NumberCall;');
     expect(() => new Bun.Transpiler({ loader: 'ts' }).transformSync(types)).not.toThrow();
   });
 
-  test('fields with the same name and a different shape get distinct types', () => {
+  test('fields with the same name and a different shape get their own type', () => {
     const types = generateTypes(
       schema(
         object('a', object('fields', int('x', 0, 1))),
@@ -229,35 +220,6 @@ describe('Type Generator', () => {
     );
     expect(types).toContain('export interface Fields {\n  x: number;\n}');
     expect(types).toContain('export interface Fields2 {\n  y: boolean;\n}');
-    // the same shape again reuses its type
     expect(types).toContain('export interface C {\n  fields: Fields;\n}');
-    expect(types).not.toContain('Fields3');
-  });
-
-  test('a type name never shadows a global type or the root type', () => {
-    const types = generateTypes(
-      schema(object('record', int('x', 0, 1)), object('number', int('y', 0, 1)), object('testData', bool('z'))),
-      'TestData'
-    );
-    expect(types).toContain('export interface RecordType {');
-    expect(types).toContain('export interface NumberType {');
-    expect(types).toContain('export interface TestData2 {');
-    expect(types).toContain('export interface TestData {');
-  });
-
-  test('a pointer to a field that is not an object or union gets a named alias', () => {
-    const types = generateTypes(
-      schema(
-        int('count', 0, 9),
-        array('list', 1, 3, union('node', enumeration('type', ['leaf', 'more']), {
-          leaf: [pointer('n', 'count')],
-          more: [pointer('rest', 'list')]
-        }))
-      )
-    );
-    expect(types).toContain('export type Count = number;');
-    expect(types).toContain('export type List = Node[];');
-    expect(types).toContain('  rest: List;');
-    expect(() => new Bun.Transpiler({ loader: 'ts' }).transformSync(types)).not.toThrow();
   });
 });

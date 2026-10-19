@@ -1,5 +1,5 @@
 import { DenseSchema, DenseField, UnionField, assertNeverDenseField } from '../schema-type';
-import { bitWidthRanges } from '../api';
+import { getDenseFieldBitWidthRange } from '../api';
 import { resolvePointerOrThrow } from './resolve';
 import {
   PRESETS_KEY,
@@ -8,8 +8,6 @@ import {
   resolveTemplateOrThrow,
   schemaDefinitions
 } from './definitions';
-
-type Widths = ReturnType<typeof bitWidthRanges>;
 
 /**
  * Helper method to get the default state as defined by a schema
@@ -23,9 +21,8 @@ export const getDefaultData = (schema: DenseSchema): any => {
   const definitions = schemaDefinitions(schema);
   if (definitions.length)
     result[PRESETS_KEY] = Object.fromEntries(definitions.map((d) => [d.name, defaultPresetName(d)]));
-  const widths = bitWidthRanges(schema);
   schema.fields.forEach((field) => {
-    result[field.name] = getDefaultValueForField(field, schema, widths, new Set(), false);
+    result[field.name] = getDefaultValueForField(field, schema, new Set(), false);
   });
   return result;
 };
@@ -34,8 +31,9 @@ export const getDefaultData = (schema: DenseSchema): any => {
  * The union variant with the smallest encoding, preferring the discriminator's default on a tie.
  * Following it always terminates: every variant field is strictly smaller than the union itself.
  */
-const smallestVariant = (field: UnionField, widths: Widths): string => {
-  const variantMin = (key: string) => field.variants[key].reduce((sum, f) => sum + widths(f).min, 0);
+const smallestVariant = (field: UnionField, schema: DenseSchema): string => {
+  const variantMin = (key: string) =>
+    field.variants[key].reduce((sum, f) => sum + getDenseFieldBitWidthRange(f, schema).min, 0);
   return field.discriminator.options.reduce(
     (best, key) => (variantMin(key) < variantMin(best) ? key : best),
     field.discriminator.defaultValue
@@ -47,7 +45,6 @@ const smallestVariant = (field: UnionField, widths: Widths): string => {
  * @note this method will recurse for some field types
  * @param field - `Field` definition
  * @param schema - Root schema, for resolving pointers
- * @param widths - bit widths of the schema's fields, to find the smallest union variant
  * @param expanding - fields whose default is currently being built on this branch
  * @param minimal - build the smallest value instead of the defaults: used once a pointer leads back
  * into a field that is already being expanded, so that recursive schemas get a finite default
@@ -56,7 +53,6 @@ const smallestVariant = (field: UnionField, widths: Widths): string => {
 const getDefaultValueForField = (
   field: DenseField,
   schema: DenseSchema,
-  widths: Widths,
   expanding: Set<DenseField>,
   minimal: boolean
 ): any => {
@@ -78,31 +74,31 @@ const getDefaultValueForField = (
 
     case 'array':
       return Array.from({ length: field.minLength }, () =>
-        getDefaultValueForField(field.items, schema, widths, inner, minimal)
+        getDefaultValueForField(field.items, schema, inner, minimal)
       );
 
     case 'object':
       return Object.fromEntries(
-        field.fields.map((f) => [f.name, getDefaultValueForField(f, schema, widths, inner, minimal)])
+        field.fields.map((f) => [f.name, getDefaultValueForField(f, schema, inner, minimal)])
       );
 
     case 'union': {
-      const discriminatorValue = minimal ? smallestVariant(field, widths) : field.discriminator.defaultValue;
+      const discriminatorValue = minimal ? smallestVariant(field, schema) : field.discriminator.defaultValue;
       const result: any = { [field.discriminator.name]: discriminatorValue };
       field.variants[discriminatorValue].forEach((variantField) => {
-        result[variantField.name] = getDefaultValueForField(variantField, schema, widths, inner, minimal);
+        result[variantField.name] = getDefaultValueForField(variantField, schema, inner, minimal);
       });
       return result;
     }
 
     case 'pointer': {
       const target = resolvePointerOrThrow(field, schema);
-      return getDefaultValueForField(target, schema, widths, inner, minimal || expanding.has(target));
+      return getDefaultValueForField(target, schema, inner, minimal || expanding.has(target));
     }
 
     case 'reference': {
       const template = resolveTemplateOrThrow(field, schema);
-      return getDefaultValueForField(template, schema, widths, inner, minimal || expanding.has(template));
+      return getDefaultValueForField(template, schema, inner, minimal || expanding.has(template));
     }
 
     default:
