@@ -114,10 +114,11 @@ const fieldBitWidthRange = (field: DenseField, schema: DenseSchema | undefined, 
  * Calculate the bit width RANGE for a field (min and max possible bits)
  * Returns the minimum and maximum number of bits that can be used to encode this field.
  * For recursive schemas `max` is `Infinity`: there is no static upper bound.
- * @param schema - the root schema, required to resolve `pointer` and `reference_numeric` fields
+ * @param schema - the root schema, required to resolve `pointer` and `reference_numeric` fields. The
+ * ranges are cached per schema object: a schema must not be changed once it has been passed to densing
  */
 export const getDenseFieldBitWidthRange = (field: DenseField, schema?: DenseSchema): { min: number; max: number } =>
-  bitWidthRanges(schema)(field);
+  schemaRanges(schema)(field);
 
 const resolveTarget = (field: PointerField | ReferenceField, schema: DenseSchema | undefined): DenseField =>
   field.type === 'pointer' ? resolvePointerOrThrow(field, schema) : resolveTemplateOrThrow(field, schema);
@@ -127,7 +128,7 @@ const resolveTarget = (field: PointerField | ReferenceField, schema: DenseSchema
  * measured once and shared; following every path through templates that refer to each other instead
  * takes exponential time.
  */
-export const bitWidthRanges = (schema?: DenseSchema): ((field: DenseField) => Range) => {
+const bitWidthRanges = (schema?: DenseSchema): ((field: DenseField) => Range) => {
   // min: a smallest encoding never goes round a cycle. Every target starts at Infinity and is lowered
   // until nothing changes; a target that stays at Infinity has no finite value
   const minOf = new Map<DenseField, number>();
@@ -174,6 +175,19 @@ export const bitWidthRanges = (schema?: DenseSchema): ((field: DenseField) => Ra
       return { min: minOf.get(target) ?? Infinity, max: targetMax(target) };
     });
   };
+};
+
+/**
+ * The bit width table of each schema, shared by every call. Schemas are treated as immutable once
+ * they have been passed to densing.
+ */
+const rangesBySchema = new WeakMap<DenseSchema, (field: DenseField) => Range>();
+
+export const schemaRanges = (schema?: DenseSchema): ((field: DenseField) => Range) => {
+  if (!schema) return bitWidthRanges(undefined);
+  let ranges = rangesBySchema.get(schema);
+  if (!ranges) rangesBySchema.set(schema, (ranges = bitWidthRanges(schema)));
+  return ranges;
 };
 
 /**
@@ -286,7 +300,7 @@ export const analyzeDenseSchemaSize = (schema: DenseSchema): SchemaSizeInfo => {
   let totalMin = headerBits;
   let totalMax = headerBits;
 
-  const widths = bitWidthRanges(schema);
+  const widths = schemaRanges(schema);
   schema.fields.forEach((field) => {
     const range = widths(field);
     fieldRanges[field.name] = range;

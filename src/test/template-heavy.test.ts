@@ -33,6 +33,11 @@ test('vec2 fixture: 202 templates that refer to each other', async () => {
   expect(validateSchema(s).valid).toBe(true);
   expect(undensingSchema(densingSchema(s))).toEqual(s);
 
+  // the ranges are cached per schema: measuring every template again takes ~600 ms without the cache
+  const start = performance.now();
+  s.templates!.forEach((t) => getDenseFieldBitWidthRange(t, s));
+  expect(performance.now() - start).toBeLessThan(100);
+
   const types = generateTypes(s);
   expect(() => new Bun.Transpiler({ loader: 'ts' }).transformSync(types)).not.toThrow();
   const names = [...types.matchAll(/^export (?:type|interface) (\S+)/gm)].map((m) => m[1]);

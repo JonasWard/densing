@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.6] - 2026-10-19
+
+### Changed
+
+- **Bit width ranges are cached per schema object**: `getDenseFieldBitWidthRange`, `analyzeDenseSchemaSize`, `validateSchema` and `getDefaultData` share one table per schema, so the templates of a schema are measured once instead of on every call (200 calls on a schema with 202 templates: 605 ms → 2 ms). `schemaFromJson` and `schema()` fill the table while validating. Schemas must be treated as immutable once they have been passed to densing (README)
+- README: the field type table says what value each type holds in the data, with an example size per type
+
 ## [0.4.5] - 2026-10-19
 
 ### Fixed
