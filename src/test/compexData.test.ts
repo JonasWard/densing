@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { schema, int, enumeration, optional, object, bool, array, union, fixed } from '../schema/builder';
-import { encodeDebugWrapper, decodeDebugWrapper } from './test-helper';
+import { densing, undensing } from '../densing';
 
 // Example: IoT Device Configuration Schema
 const DeviceConfigSchema = schema(
@@ -56,12 +56,11 @@ test('optional field - present value', () => {
     ]
   };
 
-  const encoded1 = encodeDebugWrapper(DeviceConfigSchema, tempSensorData, 'ipAddress');
-  const decoded1 = decodeDebugWrapper(DeviceConfigSchema, encoded1!, 'ipAddress');
-  // return;
+  const encoded1 = densing(DeviceConfigSchema, tempSensorData);
+  const decoded1 = undensing(DeviceConfigSchema, encoded1);
 
   console.log('Original:', JSON.stringify(tempSensorData, null, 2));
-  console.log('Encoded:', encoded1, `(${encoded1!.length} chars)`);
+  console.log('Encoded:', encoded1, `(${encoded1.length} chars)`);
   console.log('Decoded:', JSON.stringify(decoded1, null, 2));
   console.log('Match:', JSON.stringify(tempSensorData) === JSON.stringify(decoded1) ? '✓' : '✗');
 
