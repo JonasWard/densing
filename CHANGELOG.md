@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.5] - 2026-10-19
+
+### Fixed
+
+- **Schemas whose templates refer to each other no longer hang**: `schemaFromJson`, `validateSchema`, `schema()`, `densingSchema`, `analyzeDenseSchemaSize` and `calculateDenseDataSize` followed every path through the templates, which takes exponential time (a schema with 202 such templates never finished). Each template and pointer target is now measured once; the ranges are unchanged
+- **`generateTypes` output compiles**: string literals are escaped, type names are valid and unique (same-named fields with different shapes get `Fields`, `Fields2`), keys that are not identifiers are quoted, and arrays of unions are parenthesized (`('a' | 'b')[]` instead of `'a' | 'b'[]`)
+
+### Changed
+
+- README reworked: what a schema is, the Device schema as builder code and as JSON with a link that opens it in the Densing Builder, and the field types in one table. The examples per field type, templates, recursion, numeric definitions, alphabets and performance moved to GUIDE.md
+
 ## [0.4.4] - 2026-10-09
 
 ### Added
@@ -242,7 +253,6 @@ const ExprSchema = schema(
 - Comprehensive test suite (364 tests)
 - Performance benchmarks
 - Complete documentation and examples
-
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

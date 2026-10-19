@@ -1,4 +1,4 @@
-// readme-examples.test.ts - Test all examples from README.md
+// readme-examples.test.ts - Test all examples from README.md and GUIDE.md
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -30,7 +30,9 @@ import {
   densingSchema,
   undensingSchema,
   pointersToTemplates,
-  type Template
+  schemaFromJson,
+  type Template,
+  type DenseSchema
 } from '../index';
 
 // Every size figure produced by the tests below; the last test checks that the README quotes none other
@@ -567,10 +569,69 @@ test('README: alphabets', () => {
   });
 });
 
-// ===== README figures =====
-test('every size figure quoted in README.md is produced by a test above', () => {
-  const readme = readFileSync(join(import.meta.dir, '../../README.md'), 'utf8');
-  const quoted = readme.match(/"[^"]*" \(\d+ bits\)/g) ?? [];
-  expect(quoted.length).toBeGreaterThan(0);
-  for (const q of quoted) expect(producedFigures).toContain(q);
+// ===== README and GUIDE figures =====
+const readDoc = (name: string) => readFileSync(join(import.meta.dir, '../..', name), 'utf8');
+
+test('every size figure quoted in README.md and GUIDE.md is produced by a test above', () => {
+  for (const doc of ['README.md', 'GUIDE.md']) {
+    const quoted = readDoc(doc).match(/"[^"]*" \(\d+ bits\)/g) ?? [];
+    expect(quoted.length).toBeGreaterThan(0);
+    for (const q of quoted) expect(producedFigures).toContain(q);
+  }
+});
+
+const DeviceSchema = schema(
+  int('deviceId', 0, 1000),
+  bool('enabled'),
+  fixed('temperature', -40, 125, 0.1),
+  enumeration('mode', ['eco', 'normal', 'performance'])
+);
+
+test('README: the JSON schema is the same schema as the builder one', () => {
+  const block = readDoc('README.md').match(/```json\n([\s\S]*?)```/);
+  expect(block).not.toBeNull();
+  expect(schemaFromJson(JSON.parse(block![1]))).toEqual(DeviceSchema);
+});
+
+test('README and GUIDE: every Densing Builder link opens the schema and data shown next to it', () => {
+  const expr: Template = template(
+    union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+      number: [int('value', 0, 1000)],
+      add: [reference('left', () => expr), reference('right', () => expr)],
+      multiply: [reference('left', () => expr), reference('right', () => expr)]
+    })
+  );
+  const length = definition('length', { mm: { min: 0, max: 1000 }, m: { min: 0, max: 100, precision: 0.01 } });
+  const expected: Record<string, [DenseSchema, unknown]> = {
+    'Device Config': [DeviceSchema, { deviceId: 42, enabled: true, temperature: 23.5, mode: 'performance' }],
+    'Expression Tree': [
+      schema(reference('expr', expr)),
+      {
+        expr: {
+          type: 'multiply',
+          left: { type: 'add', left: { type: 'number', value: 5 }, right: { type: 'number', value: 3 } },
+          right: { type: 'number', value: 2 }
+        }
+      }
+    ],
+    'Box (shared units)': [
+      schema(referenceNumeric('width', length), referenceNumeric('height', length), referenceNumeric('depth', length)),
+      { $presets: { length: 'mm' }, width: 120, height: 40, depth: 800 }
+    ]
+  };
+
+  const seen = new Set<string>();
+  for (const doc of ['README.md', 'GUIDE.md']) {
+    for (const [, hash] of readDoc(doc).matchAll(/https:\/\/jonasward\.ch\/densing-ui\/#([^)\s]+)/g)) {
+      const params = new URLSearchParams(hash);
+      const name = params.get('n')!;
+      expect(Object.keys(expected)).toContain(name);
+      const [expectedSchema, expectedData] = expected[name];
+      const linked = undensingSchema(params.get('s')!);
+      expect(linked).toEqual(expectedSchema);
+      expect(undensing(linked, params.get('d')!)).toEqual(expectedData);
+      seen.add(name);
+    }
+  }
+  expect([...seen].sort()).toEqual(Object.keys(expected).sort());
 });

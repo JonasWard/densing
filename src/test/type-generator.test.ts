@@ -188,4 +188,38 @@ describe('Type Generator', () => {
     expect(types).toContain('}');
     expect(types).toContain(';');
   });
+
+  test('output is valid TypeScript for any names and options', () => {
+    const types = generateTypes(
+      schema(
+        enumeration('quote', ["it's", 'back\\slash']),
+        array('modes', 0, 3, enumeration('mode', ['a', 'b'])),
+        array('maybe', 0, 3, optional('value', int('v', 0, 3))),
+        union('my value', enumeration('kind', ['Vec2.x', 'number call']), {
+          'Vec2.x': [int('the x', 0, 1)],
+          'number call': []
+        })
+      )
+    );
+    expect(types).toContain("quote: 'it\\'s' | 'back\\\\slash';");
+    expect(types).toContain("modes: ('a' | 'b')[];");
+    expect(types).toContain('maybe: (number | null)[];');
+    expect(types).toContain("'my value': MyValue;");
+    expect(types).toContain("'the x': number;");
+    expect(types).toContain('export type MyValue = MyValue_Vec2X | MyValue_NumberCall;');
+    expect(() => new Bun.Transpiler({ loader: 'ts' }).transformSync(types)).not.toThrow();
+  });
+
+  test('fields with the same name and a different shape get their own type', () => {
+    const types = generateTypes(
+      schema(
+        object('a', object('fields', int('x', 0, 1))),
+        object('b', object('fields', bool('y'))),
+        object('c', object('fields', int('x', 0, 1)))
+      )
+    );
+    expect(types).toContain('export interface Fields {\n  x: number;\n}');
+    expect(types).toContain('export interface Fields2 {\n  y: boolean;\n}');
+    expect(types).toContain('export interface C {\n  fields: Fields;\n}');
+  });
 });

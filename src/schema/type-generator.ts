@@ -1,153 +1,120 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 import { PRESETS_KEY, presetNames, resolveTemplateOrThrow, schemaDefinitions } from './definitions';
+import { resolvePointerOrThrow } from './resolve';
 
 /**
- * Generate TypeScript type definitions from a schema
+ * Generate TypeScript type definitions from a schema. Objects, unions, templates and pointer targets
+ * get a named type, named after the field (union variants: `Union_Option`). Fields of the same shape
+ * share a type; a name that is already taken by another shape gets a number (`Fields2`).
  */
 export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'SchemaData'): string => {
-  const types: string[] = [];
-  const processedTypes = new Set<string>();
+  const declarations: string[] = [];
+  const usedNames = new Set([rootTypeName]);
+  const shapeNames = new Map<string, string>(); // JSON of a field -> its type name
 
-  // Generate the root type, starting with the presets of the numeric definitions
+  const uniqueName = (name: string): string => {
+    const base = capitalize(identifier(name));
+    let typeName = base;
+    for (let i = 2; usedNames.has(typeName); i++) typeName = `${base}${i}`;
+    usedNames.add(typeName);
+    return typeName;
+  };
+
+  const property = (field: DenseField): string => `  ${propertyKey(field.name)}: ${typeOf(field)};`;
+
+  /** The type name of `field`, declared the first time its shape is seen */
+  const named = (field: DenseField): string => {
+    const shape = JSON.stringify(field);
+    const known = shapeNames.get(shape);
+    if (known) return known;
+    const typeName = uniqueName(field.name);
+    shapeNames.set(shape, typeName); // before declaring, so a recursive shape refers to its own name
+    declarations.push(...declare(field, typeName));
+    return typeName;
+  };
+
+  const declare = (field: DenseField, typeName: string): string[] => {
+    if (field.type === 'object')
+      return [`export interface ${typeName} {\n${field.fields.map(property).join('\n')}\n}`];
+    if (field.type !== 'union') return [`export type ${typeName} = ${typeOf(field)};`];
+
+    // name the variants before their fields, so nested types cannot take their names
+    const { discriminator, variants } = field;
+    const variantNames = discriminator.options.map((option) =>
+      uniqueName(`${typeName}_${capitalize(identifier(option))}`)
+    );
+    return [
+      ...discriminator.options.map((option, i) => {
+        const tag = `  ${propertyKey(discriminator.name)}: ${stringLiteral(option)};`;
+        return `export interface ${variantNames[i]} {\n${[tag, ...variants[option].map(property)].join('\n')}\n}`;
+      }),
+      `export type ${typeName} = ${variantNames.join(' | ')};`
+    ];
+  };
+
+  const typeOf = (field: DenseField): string => {
+    switch (field.type) {
+      case 'bool':
+        return 'boolean';
+      case 'int':
+      case 'fixed':
+      case 'reference_numeric':
+        return 'number';
+      case 'enum':
+        return field.options.map(stringLiteral).join(' | ');
+      case 'enum_array':
+        return `(${field.enum.options.map(stringLiteral).join(' | ')})[]`;
+      case 'array': {
+        const itemType = typeOf(field.items);
+        return itemType.includes(' | ') ? `(${itemType})[]` : `${itemType}[]`;
+      }
+      case 'optional':
+        return `${typeOf(field.field)} | null`;
+      case 'object':
+      case 'union':
+        return named(field);
+      case 'pointer':
+        return named(resolvePointerOrThrow(field, schema));
+      case 'reference':
+        return named(resolveTemplateOrThrow(field, schema));
+      default:
+        return assertNeverDenseField(field);
+    }
+  };
+
+  // the root type, starting with the presets of the numeric definitions
   const definitions = schemaDefinitions(schema);
-  const presetsField = definitions.length
+  const presets = definitions.length
     ? [
         `  ${PRESETS_KEY}?: {\n${definitions
-          .map((d) => `    ${d.name}?: ${presetNames(d).map((name) => `'${name}'`).join(' | ')};`)
+          .map((d) => `    ${propertyKey(d.name)}?: ${presetNames(d).map(stringLiteral).join(' | ')};`)
           .join('\n')}\n  };`
       ]
     : [];
-  const rootFields = [
-    ...presetsField,
-    ...schema.fields.map((field) => {
-      const fieldType = getFieldType(field, types, processedTypes, schema);
-      return `  ${field.name}: ${fieldType};`;
-    })
-  ].join('\n');
+  const rootFields = [...presets, ...schema.fields.map(property)].join('\n');
 
-  const rootType = `export interface ${rootTypeName} {\n${rootFields}\n}`;
-
-  // Return all generated types with the root type at the end
-  return [...types, rootType].join('\n\n');
+  return [...declarations, `export interface ${rootTypeName} {\n${rootFields}\n}`].join('\n\n');
 };
 
-/**
- * Get the TypeScript type for a field
- */
-const getFieldType = (
-  field: DenseField,
-  types: string[],
-  processedTypes: Set<string>,
-  schema: DenseSchema
-): string => {
-  switch (field.type) {
-    case 'bool':
-      return 'boolean';
+const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$]*$/u;
 
-    case 'int':
-    case 'fixed':
-    case 'reference_numeric':
-      return 'number';
-
-    case 'enum':
-      return field.options.map((opt) => `'${opt}'`).join(' | ');
-
-    case 'enum_array':
-      return `(${field.enum.options.map((opt) => `'${opt}'`).join(' | ')})[]`;
-
-    case 'array': {
-      const itemType = getFieldType(field.items, types, processedTypes, schema);
-      return `${itemType}[]`;
-    }
-
-    case 'optional': {
-      const innerType = getFieldType(field.field, types, processedTypes, schema);
-      return `${innerType} | null`;
-    }
-
-    case 'object': {
-      const typeName = capitalize(field.name);
-
-      if (!processedTypes.has(typeName)) {
-        processedTypes.add(typeName);
-        const objectFields = field.fields
-          .map((f) => {
-            const fieldType = getFieldType(f, types, processedTypes, schema);
-            return `  ${f.name}: ${fieldType};`;
-          })
-          .join('\n');
-
-        types.push(`export interface ${typeName} {\n${objectFields}\n}`);
-      }
-
-      return typeName;
-    }
-
-    case 'pointer': {
-      // For pointers, generate a type based on the target field name
-      // This creates a self-referential type for recursive structures
-      const targetTypeName = capitalize(field.targetName);
-      return targetTypeName;
-    }
-
-    case 'reference': {
-      // every template is a named type; objects and unions name themselves, the rest get an alias
-      const template = resolveTemplateOrThrow(field, schema);
-      if (template.type === 'object' || template.type === 'union')
-        return getFieldType(template, types, processedTypes, schema);
-      const typeName = capitalize(template.name);
-      if (!processedTypes.has(typeName)) {
-        processedTypes.add(typeName); // before recursing, so a template that refers to itself terminates
-        types.push(`export type ${typeName} = ${getFieldType(template, types, processedTypes, schema)};`);
-      }
-      return typeName;
-    }
-
-    case 'union': {
-      const typeName = capitalize(field.name);
-
-      if (!processedTypes.has(typeName)) {
-        processedTypes.add(typeName);
-
-        // Get discriminator options (now always strings)
-        const options = field.discriminator.options;
-
-        // Generate variant types
-        const variants = options.map((option) => {
-          const variantTypeName = `${typeName}_${capitalize(option)}`;
-          const variantFields = field.variants[option] || [];
-
-          const fields = [
-            `  ${field.discriminator.name}: '${option}';`,
-            ...variantFields.map((f) => {
-              const fieldType = getFieldType(f, types, processedTypes, schema);
-              return `  ${f.name}: ${fieldType};`;
-            })
-          ].join('\n');
-
-          types.push(`export interface ${variantTypeName} {\n${fields}\n}`);
-
-          return variantTypeName;
-        });
-
-        // Generate union type
-        types.push(`export type ${typeName} = ${variants.join(' | ')};`);
-      }
-
-      return typeName;
-    }
-
-    default:
-      return assertNeverDenseField(field);
-  }
+/** `name` as an identifier: the characters that cannot be in one split it into capitalized words */
+const identifier = (name: string): string => {
+  if (IDENTIFIER.test(name)) return name;
+  const words = name.split(/[^\p{ID_Continue}$]+/u).filter(Boolean);
+  const joined = words.map((word, i) => (i ? capitalize(word) : word)).join('') || 'Type';
+  return IDENTIFIER.test(joined) ? joined : `_${joined}`;
 };
 
-/**
- * Capitalize the first letter of a string
- */
-const capitalize = (str: string): string => {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-};
+/** An object key: bare when it is an identifier, quoted otherwise */
+const propertyKey = (name: string): string => (IDENTIFIER.test(name) ? name : stringLiteral(name));
+
+const ESCAPES: Record<string, string> = { '\\': '\\\\', "'": "\\'", '\n': '\\n', '\r': '\\r' };
+
+/** A single quoted string literal */
+const stringLiteral = (value: string): string => `'${value.replace(/[\\'\n\r]/g, (c) => ESCAPES[c])}'`;
+
+const capitalize = (str: string): string => str.charAt(0).toUpperCase() + str.slice(1);
 
 /**
  * Generate types and write to console (for convenience)

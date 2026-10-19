@@ -1,5 +1,5 @@
 // api.ts - High-level API methods for schema introspection and size calculation
-import { DenseSchema, DenseField, assertNeverDenseField } from './schema-type';
+import { DenseSchema, DenseField, PointerField, ReferenceField, assertNeverDenseField } from './schema-type';
 import {
   getBitWidthForContantBitWidthFields,
   bitsForEnumArrayContent,
@@ -21,25 +21,21 @@ import {
 /** `count * bits`, where a count of 0 contributes nothing even when `bits` is unbounded */
 const repeatBits = (count: number, bits: number): number => (count === 0 ? 0 : count * bits);
 
-const sumRanges = (fields: DenseField[], schema: DenseSchema | undefined, pointerChain: Set<DenseField>) =>
+type Range = { min: number; max: number };
+
+/** The range of the pointer target or template a pointer / reference refers to */
+type TargetRange = (field: PointerField | ReferenceField) => Range;
+
+const sumRanges = (fields: DenseField[], schema: DenseSchema | undefined, targetRange: TargetRange) =>
   fields.reduce(
     (acc, f) => {
-      const range = fieldBitWidthRange(f, schema, pointerChain);
+      const range = fieldBitWidthRange(f, schema, targetRange);
       return { min: acc.min + range.min, max: acc.max + range.max };
     },
     { min: 0, max: 0 }
   );
 
-/**
- * @param pointerChain - pointer targets and templates currently being expanded on this branch. Only
- * pointers and references can introduce a cycle, so only they extend it, and they extend a copy so
- * siblings never see each other.
- */
-const fieldBitWidthRange = (
-  field: DenseField,
-  schema: DenseSchema | undefined,
-  pointerChain: Set<DenseField>
-): { min: number; max: number } => {
+const fieldBitWidthRange = (field: DenseField, schema: DenseSchema | undefined, targetRange: TargetRange): Range => {
   switch (field.type) {
     case 'bool':
     case 'int':
@@ -61,7 +57,7 @@ const fieldBitWidthRange = (
 
     case 'optional': {
       // Optional fields: 1 bit for presence flag + field size if present
-      const innerRange = fieldBitWidthRange(field.field, schema, pointerChain);
+      const innerRange = fieldBitWidthRange(field.field, schema, targetRange);
       return {
         min: 1, // Just the presence bit when absent
         max: 1 + innerRange.max // Presence bit + full field when present
@@ -71,7 +67,7 @@ const fieldBitWidthRange = (
     case 'array': {
       // Array: length bits + content bits
       const lengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
-      const itemRange = fieldBitWidthRange(field.items, schema, pointerChain);
+      const itemRange = fieldBitWidthRange(field.items, schema, targetRange);
       return {
         min: lengthBits + repeatBits(field.minLength, itemRange.min),
         max: lengthBits + repeatBits(field.maxLength, itemRange.max)
@@ -92,12 +88,12 @@ const fieldBitWidthRange = (
 
     case 'object':
       // Object: sum of all field ranges
-      return sumRanges(field.fields, schema, pointerChain);
+      return sumRanges(field.fields, schema, targetRange);
 
     case 'union': {
       // Union: discriminator bits + the smallest / largest variant
       const discriminatorBits = bitsForOptions(field.discriminator.options);
-      const variantRanges = Object.values(field.variants).map((fields) => sumRanges(fields, schema, pointerChain));
+      const variantRanges = Object.values(field.variants).map((fields) => sumRanges(fields, schema, targetRange));
 
       return {
         min: discriminatorBits + Math.min(...variantRanges.map((r) => r.min)),
@@ -105,22 +101,9 @@ const fieldBitWidthRange = (
       };
     }
 
-    case 'pointer': {
-      const target = resolvePointerOrThrow(field, schema);
-      // Re-entering a target that is already being expanded is a cycle: the data can nest without
-      // limit (max is unbounded), and a smallest encoding never goes round a cycle, so this branch
-      // cannot be the one that produces the minimum (min is infinite here; a union or optional
-      // above it supplies the real minimum through another branch).
-      if (pointerChain.has(target)) return { min: Infinity, max: Infinity };
-      return fieldBitWidthRange(target, schema, new Set(pointerChain).add(target));
-    }
-
-    case 'reference': {
-      // the same as a pointer: a template that is already being expanded is a cycle
-      const template = resolveTemplateOrThrow(field, schema);
-      if (pointerChain.has(template)) return { min: Infinity, max: Infinity };
-      return fieldBitWidthRange(template, schema, new Set(pointerChain).add(template));
-    }
+    case 'pointer':
+    case 'reference':
+      return targetRange(field);
 
     default:
       return assertNeverDenseField(field);
@@ -134,7 +117,64 @@ const fieldBitWidthRange = (
  * @param schema - the root schema, required to resolve `pointer` and `reference_numeric` fields
  */
 export const getDenseFieldBitWidthRange = (field: DenseField, schema?: DenseSchema): { min: number; max: number } =>
-  fieldBitWidthRange(field, schema, new Set());
+  bitWidthRanges(schema)(field);
+
+const resolveTarget = (field: PointerField | ReferenceField, schema: DenseSchema | undefined): DenseField =>
+  field.type === 'pointer' ? resolvePointerOrThrow(field, schema) : resolveTemplateOrThrow(field, schema);
+
+/**
+ * `getDenseFieldBitWidthRange` for many fields of one schema. Each pointer target and template is
+ * measured once and shared; following every path through templates that refer to each other instead
+ * takes exponential time.
+ */
+export const bitWidthRanges = (schema?: DenseSchema): ((field: DenseField) => Range) => {
+  // min: a smallest encoding never goes round a cycle. Every target starts at Infinity and is lowered
+  // until nothing changes; a target that stays at Infinity has no finite value
+  const minOf = new Map<DenseField, number>();
+  let changed = false;
+  const minEstimate: TargetRange = (field) => {
+    const target = resolveTarget(field, schema);
+    if (!minOf.has(target)) {
+      minOf.set(target, Infinity);
+      changed = true;
+    }
+    return { min: minOf.get(target) ?? Infinity, max: 0 };
+  };
+
+  // max: a target that is reached again while it is being measured lies on a cycle, so the data can
+  // nest without limit
+  const maxOf = new Map<DenseField, number>();
+  const expanding = new Set<DenseField>();
+  const maxEstimate: TargetRange = (field) => ({ min: 0, max: targetMax(resolveTarget(field, schema)) });
+  const targetMax = (target: DenseField): number => {
+    if (expanding.has(target)) return Infinity;
+    if (!maxOf.has(target)) {
+      expanding.add(target);
+      maxOf.set(target, fieldBitWidthRange(target, schema, maxEstimate).max);
+      expanding.delete(target);
+    }
+    return maxOf.get(target) ?? Infinity;
+  };
+
+  return (field) => {
+    fieldBitWidthRange(field, schema, minEstimate); // finds the targets `field` refers to
+    while (changed) {
+      changed = false;
+      // also visits the targets found during this loop
+      for (const [target, min] of minOf) {
+        const lower = fieldBitWidthRange(target, schema, minEstimate).min;
+        if (lower < min) {
+          minOf.set(target, lower);
+          changed = true;
+        }
+      }
+    }
+    return fieldBitWidthRange(field, schema, (f) => {
+      const target = resolveTarget(f, schema);
+      return { min: minOf.get(target) ?? Infinity, max: targetMax(target) };
+    });
+  };
+};
 
 /**
  * Calculate the ACTUAL bit width for a field with a specific value
@@ -246,8 +286,9 @@ export const analyzeDenseSchemaSize = (schema: DenseSchema): SchemaSizeInfo => {
   let totalMin = headerBits;
   let totalMax = headerBits;
 
+  const widths = bitWidthRanges(schema);
   schema.fields.forEach((field) => {
-    const range = getDenseFieldBitWidthRange(field, schema);
+    const range = widths(field);
     fieldRanges[field.name] = range;
     totalMin += range.min;
     totalMax += range.max;
