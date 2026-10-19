@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.5] - 2026-10-19
+
+### Fixed
+
+- **Schemas whose templates refer to each other no longer hang**: the bit width ranges followed every path through the templates, which grows exponentially with the number of templates. `schemaFromJson`, `validateSchema`, `schema()`, `densingSchema`, `analyzeDenseSchemaSize` and `calculateDenseDataSize` froze on such schemas (e.g. one with 202 union templates that refer to each other). Each pointer target and template is now measured once per call, so a schema of that size now validates in milliseconds; the reported ranges are unchanged
+- **`generateTypes` output compiles**:
+  - quotes, backslashes and line breaks in enum options, union options and preset names are escaped
+  - type names are valid identifiers: union options such as `Vec2.x` or `number call` give `Shape_Vec2X` / `Shape_NumberCall`, and field names that are not identifiers are quoted keys
+  - objects and unions with the same name but a different shape get their own types (`Fields`, `Fields2`) instead of all sharing the first one
+  - type names never shadow a global type (`Number`, `Record`, `String`, ... become `NumberType`, `RecordType`, ...) or the root type
+  - a pointer to a field that is not an object or union gets a named alias instead of a type that does not exist
+
 ## [0.4.4] - 2026-10-09
 
 ### Added

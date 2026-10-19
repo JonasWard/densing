@@ -1,5 +1,5 @@
 import { DenseField, DenseSchema, assertNeverDenseField } from '../schema-type';
-import { getDenseFieldBitWidthRange } from '../api';
+import { bitWidthRanges } from '../api';
 import { resolveDenseFieldByName } from './resolve';
 import { ValidationError, ValidationResult } from './validation';
 import { PRESETS_KEY, findDefinition, findTemplate, presetNames, schemaDefinitions, schemaTemplates } from './definitions';
@@ -89,8 +89,9 @@ export const validateSchema = (schema: DenseSchema): ValidationResult => {
   // the checks below compute bit widths, which need every definition and template to resolve
   if (errors.length) return { valid: false, errors };
 
+  const widths = bitWidthRanges(schema);
   schemaTemplates(schema).forEach((template, i) => {
-    if (getDenseFieldBitWidthRange(template, schema).min === Infinity)
+    if (widths(template).min === Infinity)
       errors.push({
         path: `templates[${i}]`,
         message: `template "${template.name}" has no finite value: every path through it recurses forever`
@@ -120,7 +121,7 @@ export const validateSchema = (schema: DenseSchema): ValidationResult => {
     const target = resolveDenseFieldByName(schema, field.targetName)!;
     if (checkedTargets.has(target)) continue;
     checkedTargets.add(target);
-    if (getDenseFieldBitWidthRange(target, schema).min === Infinity)
+    if (widths(target).min === Infinity)
       errors.push({
         path,
         message: `pointer target "${field.targetName}" has no finite value: every path through it recurses forever`

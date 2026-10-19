@@ -1,5 +1,5 @@
 // api.ts - High-level API methods for schema introspection and size calculation
-import { DenseSchema, DenseField, assertNeverDenseField } from './schema-type';
+import { DenseSchema, DenseField, PointerField, ReferenceField, assertNeverDenseField } from './schema-type';
 import {
   getBitWidthForContantBitWidthFields,
   bitsForEnumArrayContent,
@@ -21,25 +21,35 @@ import {
 /** `count * bits`, where a count of 0 contributes nothing even when `bits` is unbounded */
 const repeatBits = (count: number, bits: number): number => (count === 0 ? 0 : count * bits);
 
-const sumRanges = (fields: DenseField[], schema: DenseSchema | undefined, pointerChain: Set<DenseField>) =>
-  fields.reduce(
-    (acc, f) => {
-      const range = fieldBitWidthRange(f, schema, pointerChain);
-      return { min: acc.min + range.min, max: acc.max + range.max };
-    },
-    { min: 0, max: 0 }
-  );
+type BitRange = { min: number; max: number };
 
 /**
- * @param pointerChain - pointer targets and templates currently being expanded on this branch. Only
- * pointers and references can introduce a cycle, so only they extend it, and they extend a copy so
- * siblings never see each other.
+ * The fields a cycle can pass through: pointer targets and templates. Every other field is measured
+ * inline, from the widths of the targets it refers to.
  */
-const fieldBitWidthRange = (
+type Target = DenseField;
+
+const resolveTarget = (field: PointerField | ReferenceField, schema: DenseSchema | undefined): Target =>
+  field.type === 'pointer' ? resolvePointerOrThrow(field, schema) : resolveTemplateOrThrow(field, schema);
+
+/**
+ * The width of `field` itself, with `target` giving the width of every pointer target / template it
+ * refers to. The items of an array that is always empty are never measured: they hold no data.
+ */
+const inlineRange = (
   field: DenseField,
   schema: DenseSchema | undefined,
-  pointerChain: Set<DenseField>
-): { min: number; max: number } => {
+  target: (field: PointerField | ReferenceField) => BitRange
+): BitRange => {
+  const sum = (fields: DenseField[]) =>
+    fields.reduce(
+      (acc, f) => {
+        const range = inlineRange(f, schema, target);
+        return { min: acc.min + range.min, max: acc.max + range.max };
+      },
+      { min: 0, max: 0 }
+    );
+
   switch (field.type) {
     case 'bool':
     case 'int':
@@ -60,18 +70,16 @@ const fieldBitWidthRange = (
     }
 
     case 'optional': {
-      // Optional fields: 1 bit for presence flag + field size if present
-      const innerRange = fieldBitWidthRange(field.field, schema, pointerChain);
-      return {
-        min: 1, // Just the presence bit when absent
-        max: 1 + innerRange.max // Presence bit + full field when present
-      };
+      // 1 bit for the presence flag, plus the field when present
+      const innerRange = inlineRange(field.field, schema, target);
+      return { min: 1, max: 1 + innerRange.max };
     }
 
     case 'array': {
       // Array: length bits + content bits
       const lengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
-      const itemRange = fieldBitWidthRange(field.items, schema, pointerChain);
+      if (field.maxLength === 0) return { min: lengthBits, max: lengthBits };
+      const itemRange = inlineRange(field.items, schema, target);
       return {
         min: lengthBits + repeatBits(field.minLength, itemRange.min),
         max: lengthBits + repeatBits(field.maxLength, itemRange.max)
@@ -82,49 +90,137 @@ const fieldBitWidthRange = (
       // Enum array: length bits + packed enum content
       const lengthBits = bitsForMinMaxLength(field.minLength, field.maxLength);
       const base = field.enum.options.length;
-      const minContentBits = bitsForEnumArrayContent(field.minLength, base);
-      const maxContentBits = bitsForEnumArrayContent(field.maxLength, base);
       return {
-        min: lengthBits + minContentBits,
-        max: lengthBits + maxContentBits
+        min: lengthBits + bitsForEnumArrayContent(field.minLength, base),
+        max: lengthBits + bitsForEnumArrayContent(field.maxLength, base)
       };
     }
 
     case 'object':
-      // Object: sum of all field ranges
-      return sumRanges(field.fields, schema, pointerChain);
+      return sum(field.fields);
 
     case 'union': {
       // Union: discriminator bits + the smallest / largest variant
       const discriminatorBits = bitsForOptions(field.discriminator.options);
-      const variantRanges = Object.values(field.variants).map((fields) => sumRanges(fields, schema, pointerChain));
-
+      const variantRanges = Object.values(field.variants).map(sum);
       return {
         min: discriminatorBits + Math.min(...variantRanges.map((r) => r.min)),
         max: discriminatorBits + Math.max(...variantRanges.map((r) => r.max))
       };
     }
 
-    case 'pointer': {
-      const target = resolvePointerOrThrow(field, schema);
-      // Re-entering a target that is already being expanded is a cycle: the data can nest without
-      // limit (max is unbounded), and a smallest encoding never goes round a cycle, so this branch
-      // cannot be the one that produces the minimum (min is infinite here; a union or optional
-      // above it supplies the real minimum through another branch).
-      if (pointerChain.has(target)) return { min: Infinity, max: Infinity };
-      return fieldBitWidthRange(target, schema, new Set(pointerChain).add(target));
-    }
-
-    case 'reference': {
-      // the same as a pointer: a template that is already being expanded is a cycle
-      const template = resolveTemplateOrThrow(field, schema);
-      if (pointerChain.has(template)) return { min: Infinity, max: Infinity };
-      return fieldBitWidthRange(template, schema, new Set(pointerChain).add(template));
-    }
+    case 'pointer':
+    case 'reference':
+      return target(field);
 
     default:
       return assertNeverDenseField(field);
   }
+};
+
+/** Call `visit` for every pointer / reference in `field` that can hold data (see `inlineRange`) */
+const forEachTargetRef = (field: DenseField, visit: (field: PointerField | ReferenceField) => void): void => {
+  switch (field.type) {
+    case 'optional':
+      return forEachTargetRef(field.field, visit);
+    case 'array':
+      if (field.maxLength > 0) forEachTargetRef(field.items, visit);
+      return;
+    case 'object':
+      return field.fields.forEach((f) => forEachTargetRef(f, visit));
+    case 'union':
+      return Object.values(field.variants).forEach((fields) => fields.forEach((f) => forEachTargetRef(f, visit)));
+    case 'pointer':
+    case 'reference':
+      return visit(field);
+    case 'bool':
+    case 'int':
+    case 'fixed':
+    case 'enum':
+    case 'enum_array':
+    case 'reference_numeric':
+      return;
+    default:
+      return assertNeverDenseField(field);
+  }
+};
+
+/**
+ * Bit width ranges for the fields of one schema. The widths of pointer targets and templates are
+ * worked out once and shared, so measuring many fields of a schema whose templates refer to each
+ * other stays linear in the size of the schema (following every path instead is exponential).
+ *
+ * - `min` is the smallest finite encoding. A smallest encoding never goes round a cycle, so it is the
+ *   least fixed point of the widths: every target starts at `Infinity` and is lowered until nothing
+ *   changes. A target that stays at `Infinity` has no finite value
+ * - `max` is `Infinity` when the field can reach a cycle (the data can nest without limit)
+ *
+ * Only for internal use within one call: the schema must not change while the returned function is
+ * in use.
+ * @param schema - the root schema, required to resolve `pointer`, `reference` and `reference_numeric` fields
+ */
+export const bitWidthRanges = (schema: DenseSchema | undefined): ((field: DenseField) => BitRange) => {
+  const minOf = new Map<Target, number>();
+  const maxOf = new Map<Target, number>();
+  // `solveMin` sets every target it reaches, a target not lowered yet has no known finite value
+  const knownMin = (t: Target): number => minOf.get(t) ?? Infinity;
+
+  /** Work out `min` for every target reachable from `field` that has none yet */
+  const solveMin = (field: DenseField) => {
+    // the new targets, dependencies first so that the iteration below settles quickly
+    const pending: Target[] = [];
+    const seen = new Set<Target>();
+    const collect = (f: DenseField) =>
+      forEachTargetRef(f, (ref) => {
+        const t = resolveTarget(ref, schema);
+        if (minOf.has(t) || seen.has(t)) return;
+        seen.add(t);
+        collect(t);
+        pending.push(t);
+      });
+    collect(field);
+    if (!pending.length) return;
+
+    pending.forEach((t) => minOf.set(t, Infinity));
+    const estimate = (ref: PointerField | ReferenceField): BitRange => ({
+      min: knownMin(resolveTarget(ref, schema)),
+      max: 0
+    });
+    // every pass lowers at least one target, or stops; each lowering follows a smallest encoding, so
+    // there are at most `pending.length + 1` passes
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const t of pending) {
+        const min = inlineRange(t, schema, estimate).min;
+        if (min < knownMin(t)) {
+          minOf.set(t, min);
+          changed = true;
+        }
+      }
+    }
+  };
+
+  // depth first: a target that is reached again while it is being measured lies on a cycle, and so
+  // does every target between the two, so their max is `Infinity`
+  const expanding = new Set<Target>();
+  const targetMax = (t: Target): number => {
+    const known = maxOf.get(t);
+    if (known !== undefined) return known;
+    if (expanding.has(t)) return Infinity;
+    expanding.add(t);
+    const max = inlineRange(t, schema, (ref) => ({ min: 0, max: targetMax(resolveTarget(ref, schema)) })).max;
+    expanding.delete(t);
+    maxOf.set(t, max);
+    return max;
+  };
+
+  return (field) => {
+    solveMin(field);
+    return inlineRange(field, schema, (ref) => {
+      const t = resolveTarget(ref, schema);
+      return { min: knownMin(t), max: targetMax(t) };
+    });
+  };
 };
 
 /**
@@ -134,7 +230,7 @@ const fieldBitWidthRange = (
  * @param schema - the root schema, required to resolve `pointer` and `reference_numeric` fields
  */
 export const getDenseFieldBitWidthRange = (field: DenseField, schema?: DenseSchema): { min: number; max: number } =>
-  fieldBitWidthRange(field, schema, new Set());
+  bitWidthRanges(schema)(field);
 
 /**
  * Calculate the ACTUAL bit width for a field with a specific value
@@ -246,8 +342,9 @@ export const analyzeDenseSchemaSize = (schema: DenseSchema): SchemaSizeInfo => {
   let totalMin = headerBits;
   let totalMax = headerBits;
 
+  const widths = bitWidthRanges(schema);
   schema.fields.forEach((field) => {
-    const range = getDenseFieldBitWidthRange(field, schema);
+    const range = widths(field);
     fieldRanges[field.name] = range;
     totalMin += range.min;
     totalMax += range.max;
