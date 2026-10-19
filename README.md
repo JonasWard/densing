@@ -50,6 +50,9 @@ or as plain JSON:
 `schemaFromJson(json)` turns the second into exactly the first. It runs the same checks as the builder
 functions and fills in the defaults that were left out.
 
+Treat a schema as immutable once it has been passed to densing: densing caches what it works out per
+schema object (pointer targets, numeric definitions, bit widths). To change a schema, create a new one.
+
 [Open this schema in the Densing Builder](https://jonasward.ch/densing-ui/#n=Device+Config&s=AFI5RY-q-ibRITU1OV4ivSAgQF1QmMk0inx3nnQiRMiFzmJq5bUYXje56-0JLUDcNKew&d=Cqnu).
 It shows what every field costs and every bit the data encodes to, colored by the field it belongs to.
 

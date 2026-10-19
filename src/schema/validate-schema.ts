@@ -1,5 +1,5 @@
 import { DenseField, DenseSchema, assertNeverDenseField } from '../schema-type';
-import { bitWidthRanges } from '../api';
+import { schemaRanges } from '../api';
 import { resolveDenseFieldByName } from './resolve';
 import { ValidationError, ValidationResult } from './validation';
 import { PRESETS_KEY, findDefinition, findTemplate, presetNames, schemaDefinitions, schemaTemplates } from './definitions';
@@ -89,7 +89,7 @@ export const validateSchema = (schema: DenseSchema): ValidationResult => {
   // the checks below compute bit widths, which need every definition and template to resolve
   if (errors.length) return { valid: false, errors };
 
-  const widths = bitWidthRanges(schema);
+  const widths = schemaRanges(schema);
   schemaTemplates(schema).forEach((template, i) => {
     if (widths(template).min === Infinity)
       errors.push({
