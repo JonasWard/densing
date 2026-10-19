@@ -72,19 +72,19 @@ The same data as JSON is 70 characters. The biggest trade-off is legibility thou
 
 ## Field types
 
-| Function | JSON `type` | Bits |
-| --- | --- | --- |
-| `int(name, min, max, default?)` | `int` | `ceil(log2(max - min + 1))` |
-| `fixed(name, min, max, precision, default?)` | `fixed` | `ceil(log2((max - min) / precision + 1))` |
-| `bool(name, default?)` | `bool` | 1 |
-| `enumeration(name, options, default?)` | `enum` | `ceil(log2(options))` |
-| `optional(name, field, default?)` | `optional` | 1, plus the field when it is there |
-| `array(name, minLength, maxLength, items)` | `array` | the length, plus every item |
-| `enumArray(name, enumField, minLength, maxLength)` | `enum_array` | the length, plus all values packed as one base-n number |
-| `object(name, ...fields)` | `object` | the sum of its fields |
-| `union(name, discriminator, variants)` | `union` | the discriminator, plus the fields of the chosen variant |
-| `reference(name, template)` | `reference` | whatever the [template](https://github.com/JonasWard/densing/blob/main/GUIDE.md#templates) takes |
-| `referenceNumeric(name, definition)` | `reference_numeric` | the active preset of the [definition](https://github.com/JonasWard/densing/blob/main/GUIDE.md#shared-numeric-definitions) |
+| Field | Value in the data | Bits | Example |
+| --- | --- | --- | --- |
+| `int(name, min, max, default?)`<br>`int` | a whole number from `min` to `max` | `ceil(log2(max - min + 1))` | `int('age', 0, 120)`: 7 bits |
+| `fixed(name, min, max, precision, default?)`<br>`fixed` | a number from `min` to `max`, rounded to a multiple of `precision` | `ceil(log2((max - min) / precision + 1))` | `fixed('temperature', -40, 125, 0.1)`: 11 bits |
+| `bool(name, default?)`<br>`bool` | `true` or `false` | 1 | |
+| `enumeration(name, options, default?)`<br>`enum` | one of the option strings | `ceil(log2(options))` | 3 options: 2 bits |
+| `optional(name, field, default?)`<br>`optional` | the field's value, or `null` | 1 for present or absent, plus the field when present | an optional `int(0, 1000)`: 1 or 11 bits |
+| `array(name, minLength, maxLength, items)`<br>`array` | an array of `minLength` to `maxLength` items | the length (`ceil(log2(maxLength - minLength + 1))`), plus every item | 0 to 10 items of `int(0, 100)`: 4 bits + 7 per item |
+| `enumArray(name, enumField, minLength, maxLength)`<br>`enum_array` | an array of option strings | the length, plus all values packed as one base-n number | 7 values out of 7 options: 3 + 20 bits (21 when stored one by one) |
+| `object(name, ...fields)`<br>`object` | an object with a key per field | the sum of its fields | |
+| `union(name, discriminator, variants)`<br>`union` | an object with the discriminator key set to one of its options, plus the fields of that variant | the discriminator, plus the fields of the chosen variant | |
+| `reference(name, template)`<br>`reference` | the value of the [template](https://github.com/JonasWard/densing/blob/main/GUIDE.md#templates) | whatever the template takes | |
+| `referenceNumeric(name, definition)`<br>`reference_numeric` | a number in the range of the active preset of the [definition](https://github.com/JonasWard/densing/blob/main/GUIDE.md#shared-numeric-definitions) | the bits of the active preset, which the data picks in `$presets` | |
 
 The [guide](https://github.com/JonasWard/densing/blob/main/GUIDE.md) has an example for each of them,
 including recursive structures like an expression tree.
