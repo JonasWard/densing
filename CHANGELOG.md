@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.0] - 2026-10-19
+
+### Changed (breaking)
+
+- **Union variants are templates**: a union is `union(name, discriminator, variants, defaultVariant?)`, where `discriminator` is the data key (a string) and each variant is a list of fields or an object template. `schema()` stores every variant as an object template, and variants with the same fields share one, so several unions can offer the same alternatives (e.g. the same operations) without repeating them and without nesting a union in a union. In JSON a union is `{ "type": "union", "name", "discriminator": "type", "variants": { "a": 0, "b": 1 }, "defaultVariant"? }`, the values being template indices in the order of the encoded index. The data and the payloads do not change. The dirty-geometry vec2 schema loads 39% smaller (209 KB → 128 KB of JSON, schema string 25.2k → 21.9k characters)
+  - `union(name, enumeration(...), variants)` still works (deprecated); `schemaFromJson` converts unions in the 0.4 form (an enum discriminator and the fields of each variant)
+  - Variant names must not look like array indices (`"0"`, `"12"`): JS objects would reorder them
+  - `UnionField` has `discriminator: string`, `variants: Record<string, number>` and `defaultVariant?`; the variants of a union built by `union()` or loaded with its schema resolve on their own, others need the schema
+- **`pointer` is removed** (deprecated since 0.4.4), with `PointerField` and `'pointer'` in `FieldTypes`. `pointersToTemplates` now takes and returns schema JSON (0.5.0 cannot load a schema with pointers); `schemaFromJson` points to it when it meets a pointer. `densing upgrade` reads a 0.4 schema and prints it in the 0.5 form
+- **Schema strings are version 1** (FORMAT.md section 4): a private type table without `pointer`, unions as discriminator + variant names + template indices, enums from one option. Version 0 strings (densing 0.4) still decode; their unions and pointers come back as templates. A version 0 string with pointers and optional defaults stored after the structure is rejected with a hint
+
+### Added
+
+- Enumerations (and unions) with a single option, which cost 0 bits
+
+### Removed
+
+- The test helper's second copy of the codec (`encodeDebugWrapper` / `decodeDebugWrapper`)
+
 ## [0.4.6] - 2026-10-19
 
 ### Changed
