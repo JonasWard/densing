@@ -47,8 +47,7 @@ at boundaries (e.g. `ceil(log2(2^49 + 1))` evaluates to 49 in JavaScript).
 | `enum_array(enum, minLength, maxLength)` | length prefix as for `array`, then the content (below) |
 | `optional(field)` | 1 presence bit (`1` = present), then the inner field if present |
 | `object(fields)` | each field in declaration order, nothing else |
-| `union(discriminator, variants)` | the discriminator as an `enum`, then the fields of the selected variant in declaration order |
-| `pointer(targetName)` | exactly the encoding of the field it resolves to |
+| `union(discriminator, variants)` | the index of the selected variant (in the order of `variants`) in `bits(variants)` bits, then the fields of its object template in declaration order |
 | `reference(ref)` | exactly the encoding of `templates[ref]` |
 | `reference_numeric(ref)` | exactly the encoding of the active preset of definition `ref`, as an `int` (preset without `precision`) or a `fixed` |
 
@@ -74,9 +73,9 @@ bits (`ceil(L * log2(n))`). An empty array has no content bits.
 ### Decoding notes
 
 - An absent `optional` decodes to the field's `defaultValue` when one is set, otherwise `null`.
-- A `pointer` resolves to the field named `targetName`. Pointer targets must be unique among all object
-  fields, union variant fields, array items and optional inner fields (`validateSchema`), so which
-  field a pointer refers to never depends on declaration order.
+- A union decodes to `{ [discriminator]: variant, ...the fields of the variant's template }`.
+- Payloads did not change in 0.5.0: a union variant whose fields became a template, and a `pointer`
+  converted to a template (`pointersToTemplates`), encode exactly as before.
 
 ### Canonical payloads
 
@@ -154,12 +153,12 @@ base64  (k = 6): 000110    → "G"
 
 | part | content |
 |---|---|
-| header | version (3 bits, `0`), has `definitions` (1 bit), has `templates` (1 bit), back-references on (1 bit), affixes on (1 bit) |
+| header | version (3 bits, `1`), has `definitions` (1 bit), has `templates` (1 bit), back-references on (1 bit), affixes on (1 bit) |
 | alphabet | `U(count)`, then the distinct code points of all strings in ascending order, each as `U(gap)`: the first as `U(cp)`, the others as `U(cp − previous − 1)` |
 | definitions | when present: `U(count)`, each definition: name `S`, `U(presets − 1)`, each preset: name `S`, a bit (`1` = fixed), the numbers as for `int` / `fixed` below; then the default preset: `0`, or `1` + its index |
 | templates | when present: `U(count)`, each a field |
 | fields | `U(count)`, each a field |
-| optional defaults | for every `optional` whose default is stored after the structure, in the order of the fields (templates first, depth first, union variants in option order): the value densed with the inner field, or its JSON text as `S` |
+| optional defaults | for every `optional` whose default is stored after the structure, in the order of the fields (templates first, depth first): the value densed with the inner field, or its JSON text as `S` |
 
 An index into a list of `n` entries takes `bits(n)` bits (section 1).
 
@@ -181,22 +180,28 @@ The encoder picks the combination of the two switches that gives the fewest bits
 ### Fields
 
 A field is its type as an index into `bool, int, enum, fixed, array, enum_array, union, optional,
-object, pointer, reference_numeric, reference` (4 bits), its name `S`, and then:
+object, reference_numeric, reference` (4 bits), its name `S`, and then:
 
 | type | content |
 |---|---|
 | `bool` | the default (1 bit) |
 | `int` | `I(min)`, `U(max − min)`, the default: `0` = `min`, or `1` + `default − min` in `bits(max − min + 1)` bits |
 | `fixed` | `exact(U(round(1 / precision) − 1))`, `exact(I(min steps))`, `exact(U(max steps − min steps))`, the default: `0` = `min`, or `1` + `exact(steps above min)` |
-| `enum` | (no second name) `U(options − 2)`, each option `S`, the default: `0` = first option, or `1` + its index |
+| `enum` | (no second name) `U(options − 1)`, each option `S`, the default: `0` = first option, or `1` + its index |
 | `enum_array` | the enum as name `S` + enum content, `U(minLength)`, `U(maxLength − minLength)`, the default: `0` = `minLength` times the enum default, or `1` + length − minLength + each index |
 | `array` | `U(minLength)`, `U(maxLength − minLength)`, the item field |
 | `object` | `U(count)`, the fields |
-| `union` | the discriminator as name `S` + enum content, then for every option in order `U(count)` and the variant's fields |
+| `union` | the discriminator `S`, `U(variants − 1)`, each variant: its name `S` and the index of its template; then the default variant: `0` = the first, or `1` + its index |
 | `optional` | the default (2 bits: `0` none, `1` null, `2` densed after the structure, `3` JSON after the structure), the inner field |
-| `pointer` | the target name `S` |
 | `reference_numeric` | the index of the definition |
 | `reference` | the index of the template |
+
+Version 0 (densing 0.4) is still read. It differs in three places: the type list has `pointer`
+between `object` and `reference_numeric` (content: the target name `S`); an `enum` writes
+`U(options − 2)`; and a `union` writes its discriminator as an enum field (name `S` + enum content)
+followed, for every option in order, by `U(count)` and the variant's fields. The decoder turns those
+fields into templates (as `schemaFromJson` does) and pointers into templates (`pointersToTemplates`);
+a version 0 schema with pointers and optional defaults stored after the structure is rejected.
 
 A decoder rejects (`DenseDecodeError`): an unknown version or field type, indices past their list,
 code points above U+10FFFF, counts and lengths larger than the input left, numbers above 2^53 − 1,

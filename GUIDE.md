@@ -43,12 +43,12 @@ densing(ListSchema, { scores: [95, 87, 92, 88] }); // "S_XuWA" (32 bits)
 
 ### Unions
 
-The discriminator is an enumeration, and every option has its own list of fields. Only the fields of
-the chosen variant are written, therefore a `stop` takes 3 bits where a `pause` takes 14.
+The discriminator is the data key that names the variant, and every variant has its own fields. Only
+the fields of the chosen variant are written, therefore a `stop` takes 3 bits where a `pause` takes 14.
 
 ```typescript
 const ActionSchema = schema(
-  union('action', enumeration('type', ['start', 'stop', 'pause']), {
+  union('action', 'type', {
     start: [int('delay', 0, 60)],
     stop: [bool('force')],
     pause: [int('duration', 0, 3600)]
@@ -59,6 +59,25 @@ densing(ActionSchema, { action: { type: 'start', delay: 5 } }); // "BQ" (8 bits)
 densing(ActionSchema, { action: { type: 'stop', force: true } }); // "Y" (3 bits)
 densing(ActionSchema, { action: { type: 'pause', duration: 1234 } }); // "k0g" (14 bits)
 ```
+
+Every variant is an object [template](#templates): `schema()` stores the fields of each variant once,
+under `templates`, and variants with the same fields share one. So unions can offer the same
+operations without repeating them:
+
+```typescript
+const operations = { double: [int('value', 0, 100)], half: [int('value', 0, 100)] };
+const Measures = schema(
+  union('length', 'type', { literal: [int('value', 0, 100)], ...operations }),
+  union('angle', 'type', { degrees: [int('value', 0, 359)], ...operations })
+);
+
+densing(Measures, { length: { type: 'double', value: 3 }, angle: { type: 'degrees', value: 90 } });
+```
+
+In the JSON a union names the template of each variant by index, in the order of the encoded index:
+`{ "type": "union", "name": "length", "discriminator": "type", "variants": { "literal": 0, "double": 0, "half": 0 } }`.
+A variant can also be a template of its own (`literal: vec3`), and a fourth argument sets the variant
+of the default data (the first one otherwise).
 
 ### Enum arrays
 
@@ -94,7 +113,7 @@ reference gets a function instead of the template:
 
 ```typescript
 const expr: Template = template(
-  union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+  union('expr', 'type', {
     number: [int('value', 0, 1000)],
     add: [reference('left', () => expr), reference('right', () => expr)],
     multiply: [reference('left', () => expr), reference('right', () => expr)]

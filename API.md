@@ -16,7 +16,8 @@ The API provides two main categories of functionality:
 #### `getDenseFieldBitWidthRange(field: DenseField, schema?: DenseSchema): { min: number; max: number }`
 
 Returns the minimum and maximum number of bits that can be used to encode a field.
-Pass the root `schema` when the field contains `pointer` fields. For a recursive schema `max` is
+Pass the root `schema` when the field contains `reference` fields (unions built with `union()` find
+their variants on their own). For a recursive schema `max` is
 `Infinity` (there is no static upper bound) and `min` is the size of the smallest finite value.
 
 ```typescript
@@ -140,8 +141,8 @@ continues into its items.
 | object | `settings.enabled` | a field of the object |
 | array | `users[].user`, `users[].user.id` | the items field (and its fields) |
 | optional | `maybe.inner` | the wrapped field |
-| union | `action.type`, `action.delay` | the discriminator, or a field of any variant (the first variant wins when several declare the name) |
-| pointer | `expr.left.value` | `getFieldByPath` continues in the pointer's target; the walk does not descend into pointers |
+| union | `action.type`, `action.delay` | the discriminator, or a field of any variant's template (the first variant wins when several declare the name) |
+| reference | `expr.left.value` | `getFieldByPath` continues in the template; the walk does not descend into references |
 
 Every path the walk produces resolves with `getFieldByPath`. For compatibility, `getFieldByPath`
 also accepts `list.child` for a field of an array's object items (`list[].item.child`).
@@ -157,7 +158,7 @@ const field = getFieldByPath(schema, 'deviceId');
 // Nested field
 const nestedField = getFieldByPath(schema, 'network.port');
 
-// Array items, union variants, pointers
+// Array items, union variants, references
 getFieldByPath(schema, 'users[].user.id');
 getFieldByPath(schema, 'action.delay');
 getFieldByPath(schema, 'expr.left.value');
@@ -225,33 +226,39 @@ console.log(paths);
 Checks the rules that depend on the whole schema. `schema()` runs it and throws on the first error;
 call it yourself for schemas built by hand or loaded from JSON.
 
-Pointers are deprecated (removal planned for 0.5.0): templates express the same schemas with the
-same bits. `pointersToTemplates(schema)` converts a schema: every pointer target becomes a template,
-it and every pointer to it become `reference` fields, and data and payloads stay the same.
-
-- every `pointer` target exists
-- every `pointer` target name is unique among the fields a pointer can refer to (object fields,
-  union variant fields, array items, optional inner fields), so the target never depends on
-  declaration order
-- every `pointer` target has a finite value: a recursive cycle must pass through a union variant, an
-  optional or an array that may be empty
 - definition names are unique, every definition has a preset and its `defaultPreset` is one of them
 - every `reference_numeric` field refers to an existing definition, and no top-level field of a schema
   with definitions is called `$presets`
-- every `reference` field's `ref` is an index into `templates`; template names are unique, every
-  template is referenced and has a finite value. Templates are not pointer targets
+- every `reference` field's `ref` and every union variant is an index into `templates`; template names
+  are unique, every template is referenced and has a finite value: a recursive cycle must pass through
+  a union variant, an optional or an array that may be empty
+- a union has at least one variant, its variant names are not integer-like (JS objects would reorder
+  them) and its `defaultVariant` is one of them; every variant's template is an object (or a
+  reference to one) without a field named like the discriminator
 
 ```typescript
-validateSchema({ fields: [object('node', int('v', 0, 3), pointer('next', 'node'))] });
-// { valid: false, errors: [{ path: 'node.next', message: 'pointer target "node" has no finite value: ...' }] }
+validateSchema({
+  templates: [{ type: 'object', name: 'node', fields: [int('v', 0, 3), { type: 'reference', name: 'next', ref: 0 }] }],
+  fields: [{ type: 'reference', name: 'list', ref: 0 }]
+});
+// { valid: false, errors: [{ path: 'templates[0]', message: 'template "node" has no finite value: ...' }] }
 ```
+
+### `pointersToTemplates(json: unknown): object`
+
+`pointer` fields were removed in 0.5.0. This converts the JSON of a 0.4 schema that still has them:
+every pointer target becomes a template, it and every pointer to it become `reference` fields, and
+data and payloads stay the same. Load the result with `schemaFromJson` (the CLI: `densing upgrade`).
+It throws when a pointer target does not exist or is ambiguous.
 
 ### `schemaFromJson(input: unknown): DenseSchema`
 
 Loads a schema from its JSON representation: a JSON string or a parsed object, for example the
 output of `JSON.stringify(schema)`. Every field and definition is rebuilt with the builders and the
 result checked like `schema()`, including its `templates`, so the builder checks and `validateSchema` apply,
-and missing `defaultValue`s and `defaultPreset`s are filled in. Unknown field types and unknown or mistyped properties are rejected. Errors name the field:
+and missing `defaultValue`s and `defaultPreset`s are filled in. Unknown field types and unknown or mistyped properties are rejected.
+Unions written by densing 0.4 (an enum `discriminator` and the fields of each variant) are converted:
+the fields become templates, so the result is written in the 0.5 form. Errors name the field:
 
 ```typescript
 schemaFromJson('{"fields":[{"type":"int","name":"age","min":0,"max":120}]}');
@@ -270,7 +277,8 @@ back. `undensingSchema(densingSchema(s))` equals `s` for every schema the builde
 encoding is deterministic. `densingSchema` throws for a schema `validateSchema` rejects;
 `undensingSchema` throws a `DenseDecodeError` for a string that is not an encoded schema, or an
 "Invalid schema" error when it decodes to a schema the builders reject. The format is section 4 of
-FORMAT.md.
+FORMAT.md. Strings written by densing 0.4 (version 0) still decode; their unions and pointers come
+back as templates.
 
 ```typescript
 undensingSchema(densingSchema(DeviceSchema)); // equal to DeviceSchema

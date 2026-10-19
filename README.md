@@ -51,7 +51,7 @@ or as plain JSON:
 functions and fills in the defaults that were left out.
 
 Treat a schema as immutable once it has been passed to densing: densing caches what it works out per
-schema object (pointer targets, numeric definitions, bit widths). To change a schema, create a new one.
+schema object (union variants, numeric definitions, bit widths). To change a schema, create a new one.
 
 [Open this schema in the Densing Builder](https://jonasward.ch/densing-ui/#n=Device+Config&s=AFI5RY-q-ibRITU1OV4ivSAgQF1QmMk0inx3nnQiRMiFzmJq5bUYXje56-0JLUDcNKew&d=Cqnu).
 It shows what every field costs and every bit the data encodes to, colored by the field it belongs to.
@@ -82,7 +82,7 @@ The same data as JSON is 70 characters. The biggest trade-off is legibility thou
 | `array(name, minLength, maxLength, items)`<br>`array` | an array of `minLength` to `maxLength` items | the length (`ceil(log2(maxLength - minLength + 1))`), plus every item | 0 to 10 items of `int(0, 100)`: 4 bits + 7 per item |
 | `enumArray(name, enumField, minLength, maxLength)`<br>`enum_array` | an array of option strings | the length, plus all values packed as one base-n number | 7 values out of 7 options: 3 + 20 bits (21 when stored one by one) |
 | `object(name, ...fields)`<br>`object` | an object with a key per field | the sum of its fields | |
-| `union(name, discriminator, variants)`<br>`union` | an object with the discriminator key set to one of its options, plus the fields of that variant | the discriminator, plus the fields of the chosen variant | |
+| `union(name, discriminator, variants)`<br>`union` | an object with the discriminator key set to the name of one of its variants, plus the fields of that variant | the variant's index (`ceil(log2(variants))`), plus the fields of the chosen variant | 3 variants: 2 bits + the variant's fields |
 | `reference(name, template)`<br>`reference` | the value of the [template](https://github.com/JonasWard/densing/blob/main/GUIDE.md#templates) | whatever the template takes | |
 | `referenceNumeric(name, definition)`<br>`reference_numeric` | a number in the range of the active preset of the [definition](https://github.com/JonasWard/densing/blob/main/GUIDE.md#shared-numeric-definitions) | the bits of the active preset, which the data picks in `$presets` | |
 

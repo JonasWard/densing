@@ -59,7 +59,7 @@ densing <command> -s <schema.json> [input] [options]
 | `types` | – | TypeScript types for the schema |
 | `paths` | – | all field paths, one per line |
 | `schema` | – | the schema with all defaults filled in; with `--dense` the schema as a compact string (`densingSchema`, in `--base`) |
-| `upgrade` | – | the schema with deprecated pointers turned into templates (`pointersToTemplates`); data and encodings stay the same |
+| `upgrade` | – | a densing 0.4 schema (JSON) in the 0.5 form: pointers and the fields of union variants become templates (`pointersToTemplates`, `schemaFromJson`); data and encodings stay the same |
 
 | Option | |
 | --- | --- |
