@@ -10,10 +10,13 @@ import {
   optional,
   object,
   union,
-  pointer,
+  reference,
+  template,
+  Template,
   schemaFromJson,
   getDefaultData
 } from '../schema';
+import { pointersToTemplates } from '../schema/migrate';
 import { densing, undensing } from '../densing';
 import { calculateDenseDataSize } from '../api';
 import type { DenseField, DenseSchema } from '../schema-type';
@@ -38,13 +41,14 @@ const DeviceConfigSchema = schema(
   enumArray('palette', enumeration('color', ['R', 'G', 'B']), 1, 10, ['G'])
 );
 
-const ExpressionSchema = schema(
-  union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+const exprTemplate: Template = template(
+  union('expr', 'type', {
     number: [int('value', 0, 1000)],
-    add: [pointer('left', 'expr'), pointer('right', 'expr')],
-    multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
+    add: [reference('left', () => exprTemplate), reference('right', () => exprTemplate)],
+    multiply: [reference('left', () => exprTemplate), reference('right', () => exprTemplate)]
   })
 );
+const ExpressionSchema = schema(reference('expr', exprTemplate));
 
 const jsonRoundTrip = (s: unknown) => schemaFromJson(JSON.parse(JSON.stringify(s)));
 
@@ -57,7 +61,7 @@ describe('schemaFromJson - round trip', () => {
     expect(schemaFromJson(JSON.stringify(DeviceConfigSchema))).toEqual(DeviceConfigSchema);
   });
 
-  test('recursive schema with pointers survives the round trip and encodes identically', () => {
+  test('recursive schema survives the round trip and encodes identically', () => {
     const loaded = jsonRoundTrip(ExpressionSchema);
     expect(loaded).toEqual(ExpressionSchema);
 
@@ -145,7 +149,19 @@ describe('schemaFromJson - errors', () => {
     expect(field({ type: 'fixed', name: 'f', min: 0, max: 1, precision: 0.3 })).toThrow('1 / precision must be an integer');
   });
 
-  test('checks union discriminators and variants', () => {
+  test('checks unions in the 0.5 form', () => {
+    const variants = { a: 0 };
+    const templates = [{ type: 'object', name: 'a', fields: [] }];
+    const union0 = (u: Record<string, unknown>) => () => schemaFromJson({ templates, fields: [{ type: 'union', name: 'u', ...u }] });
+    expect(union0({ discriminator: 'type', variants })).not.toThrow();
+    expect(union0({ discriminator: 'type', variants: { a: 'x' } })).toThrow('Invalid schema at fields[0].variants.a: must be the index of a template');
+    expect(union0({ discriminator: 'type', variants: {} })).toThrow('a union needs at least one variant');
+    expect(union0({ discriminator: 'type', variants: { a: 3 } })).toThrow('u.variants.a: template 3 does not exist');
+    expect(union0({ discriminator: 'type', variants, defaultVariant: 'z' })).toThrow('default variant "z" is not one of [a]');
+    expect(union0({ discriminator: 1, variants })).toThrow('"discriminator" must be a string');
+  });
+
+  test('checks unions in the 0.4 form (an enum discriminator and fields per variant)', () => {
     const discriminator = { type: 'enum', name: 'type', options: ['a', 'b'] };
     expect(field({ type: 'union', name: 'u', discriminator, variants: { a: [] } })).toThrow(
       'union "u": missing variant definition for "b"'
@@ -159,9 +175,7 @@ describe('schemaFromJson - errors', () => {
   });
 
   test('runs the whole-schema checks of schema()', () => {
-    expect(field({ type: 'pointer', name: 'p', targetName: 'nowhere' })).toThrow(
-      'Invalid schema: p: pointer target "nowhere" does not exist'
-    );
+    expect(field({ type: 'reference', name: 'p', ref: 3 })).toThrow('Invalid schema: p: template 3 does not exist');
     expect(() =>
       schemaFromJson({
         fields: [
@@ -180,20 +194,35 @@ describe('schemaFromJson - errors', () => {
 });
 
 /**
- * Every way a schema can recurse. A cycle needs an exit (a union variant, an optional or an array that may be
- * empty), and a pointer target can be any field a pointer resolves to: top level, inside an object, a union
- * variant, array items or an optional. Each sample nests at least three levels deep.
+ * Every way a schema can recurse. A cycle goes through a template and needs an exit (a union variant, an
+ * optional or an array that may be empty). Each sample nests at least three levels deep.
  */
+const recursive = (build: (self: () => Template) => DenseField, name: string) => {
+  const t: Template = template(build(() => t));
+  return reference(name, t);
+};
+const exprT = exprTemplate;
+const nodeT: Template = template(object('node', int('value', 0, 7), optional('next', reference('nextNode', () => nodeT))));
+const treeT: Template = template(object('tree', int('value', 0, 15), array('children', 0, 3, reference('child', () => treeT))));
+const aT: Template = template(union('a', 't', { toB: [reference('b', () => bT)], stop: [] }));
+const bT: Template = template(object('bNode', bool('flag'), union('next', 'k', { toA: [reference('back', () => aT)], end: [] })));
+const jsonT: Template = template(
+  union('json', 'type', {
+    null: [],
+    bool: [bool('value')],
+    number: [fixed('value', -100, 100, 0.5)],
+    array: [array('items', 0, 4, reference('item', () => jsonT))],
+    object: [array('entries', 0, 3, object('entry', enumeration('key', ['a', 'b', 'c']), reference('value', () => jsonT)))]
+  })
+);
+const negT: Template = template(union('expr', 'type', { number: [int('value', 0, 9)], neg: [reference('inner', () => negT)] }));
+const listT: Template = template(object('list', reference('head', negT), optional('tail', reference('rest', () => listT))));
+const bareTreeT: Template = template(object('tree', array('children', 0, 2, reference('child', () => bareTreeT))));
+
 const recursiveCases: [string, DenseSchema, unknown][] = [
   [
-    'union variants pointing back to the union (expression)',
-    schema(
-      union('expr', enumeration('type', ['number', 'add', 'multiply']), {
-        number: [int('value', 0, 1000)],
-        add: [pointer('left', 'expr'), pointer('right', 'expr')],
-        multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
-      })
-    ),
+    'union variants referring back to the union (expression)',
+    ExpressionSchema,
     {
       expr: {
         type: 'multiply',
@@ -202,14 +231,10 @@ const recursiveCases: [string, DenseSchema, unknown][] = [
       }
     }
   ],
-  [
-    'optional pointer (linked list)',
-    schema(object('node', int('value', 0, 7), optional('next', pointer('nextNode', 'node')))),
-    { node: { value: 1, next: { value: 2, next: { value: 3, next: null } } } }
-  ],
+  ['optional reference (linked list)', schema(reference('node', nodeT)), { node: { value: 1, next: { value: 2, next: { value: 3, next: null } } } }],
   [
     'array that may be empty (n-ary tree)',
-    schema(object('tree', int('value', 0, 15), array('children', 0, 3, pointer('child', 'tree')))),
+    schema(reference('tree', treeT)),
     {
       tree: {
         value: 1,
@@ -223,10 +248,10 @@ const recursiveCases: [string, DenseSchema, unknown][] = [
   [
     'array of at least one, ended by a union variant',
     schema(
-      union('tree', enumeration('kind', ['leaf', 'branch']), {
-        leaf: [int('value', 0, 9)],
-        branch: [array('children', 1, 3, pointer('child', 'tree'))]
-      })
+      recursive(
+        (self) => union('tree', 'kind', { leaf: [int('value', 0, 9)], branch: [array('children', 1, 3, reference('child', self))] }),
+        'tree'
+      )
     ),
     {
       tree: {
@@ -239,23 +264,23 @@ const recursiveCases: [string, DenseSchema, unknown][] = [
     }
   ],
   [
-    'mutual recursion between top-level fields',
-    schema(
-      union('a', enumeration('t', ['toB', 'stop']), { toB: [pointer('b', 'bNode')], stop: [] }),
-      object('bNode', bool('flag'), union('next', enumeration('k', ['toA', 'end']), { toA: [pointer('back', 'a')], end: [] }))
-    ),
+    'mutual recursion between two templates',
+    schema(reference('a', aT), reference('bNode', bT)),
     {
       a: { t: 'toB', b: { flag: true, next: { k: 'toA', back: { t: 'toB', b: { flag: false, next: { k: 'end' } } } } } },
       bNode: { flag: false, next: { k: 'toA', back: { t: 'stop' } } }
     }
   ],
   [
-    'target nested inside an object',
+    'recursion nested inside an object',
     schema(
       object(
         'doc',
         int('version', 1, 3),
-        object('section', enumeration('level', ['h1', 'h2', 'h3']), array('subsections', 0, 3, pointer('sub', 'section')))
+        recursive(
+          (self) => object('section', enumeration('level', ['h1', 'h2', 'h3']), array('subsections', 0, 3, reference('sub', self))),
+          'section'
+        )
       )
     ),
     {
@@ -269,36 +294,28 @@ const recursiveCases: [string, DenseSchema, unknown][] = [
     }
   ],
   [
-    'target defined inside a union variant',
+    'recursion inside a union variant',
     schema(
-      union('shape', enumeration('type', ['box', 'group']), {
+      union('shape', 'type', {
         box: [int('size', 0, 10)],
-        group: [object('groupBody', int('id', 0, 99), optional('inner', pointer('innerGroup', 'groupBody')))]
+        group: [recursive((self) => object('groupBody', int('id', 0, 99), optional('inner', reference('innerGroup', self))), 'groupBody')]
       })
     ),
     { shape: { type: 'group', groupBody: { id: 1, inner: { id: 2, inner: { id: 3, inner: null } } } } }
   ],
   [
-    'target is the item field of an array',
-    schema(array('list', 0, 3, object('item', int('id', 0, 9), optional('nested', pointer('nestedItem', 'item'))))),
+    'recursion in the items of an array',
+    schema(array('list', 0, 3, recursive((self) => object('item', int('id', 0, 9), optional('nested', reference('nestedItem', self))), 'item'))),
     { list: [{ id: 1, nested: { id: 2, nested: { id: 3, nested: null } } }, { id: 4, nested: null }] }
   ],
   [
-    "target is an optional's inner field",
-    schema(optional('maybe', object('inner', bool('on'), optional('again', pointer('innerAgain', 'inner'))))),
+    "recursion in an optional's inner field",
+    schema(optional('maybe', recursive((self) => object('inner', bool('on'), optional('again', reference('innerAgain', self))), 'inner'))),
     { maybe: { on: true, again: { on: false, again: { on: true, again: null } } } }
   ],
   [
-    'json-like value: pointers inside arrays and objects inside variants',
-    schema(
-      union('json', enumeration('type', ['null', 'bool', 'number', 'array', 'object']), {
-        null: [],
-        bool: [bool('value')],
-        number: [fixed('value', -100, 100, 0.5)],
-        array: [array('items', 0, 4, pointer('item', 'json'))],
-        object: [array('entries', 0, 3, object('entry', enumeration('key', ['a', 'b', 'c']), pointer('value', 'json')))]
-      })
-    ),
+    'json-like value: references inside arrays and objects inside variants',
+    schema(reference('json', jsonT)),
     {
       json: {
         type: 'object',
@@ -311,31 +328,11 @@ const recursiveCases: [string, DenseSchema, unknown][] = [
   ],
   [
     'several recursive structures in one schema, one referring to another',
-    schema(
-      union('expr', enumeration('type', ['number', 'neg']), { number: [int('value', 0, 9)], neg: [pointer('inner', 'expr')] }),
-      object('list', pointer('head', 'expr'), optional('tail', pointer('rest', 'list'))),
-      object('tree', array('children', 0, 2, pointer('child', 'tree')))
-    ),
+    schema(reference('expr', negT), reference('list', listT), reference('tree', bareTreeT)),
     {
       expr: { type: 'neg', inner: { type: 'neg', inner: { type: 'number', value: 4 } } },
       list: { head: { type: 'number', value: 1 }, tail: { head: { type: 'neg', inner: { type: 'number', value: 2 } }, tail: null } },
       tree: { children: [{ children: [{ children: [] }] }, { children: [] }] }
-    }
-  ],
-  [
-    'pointer whose target is another pointer',
-    schema(
-      union('expr', enumeration('type', ['number', 'add']), {
-        number: [int('value', 0, 9)],
-        add: [pointer('left', 'expr'), pointer('right', 'left')]
-      })
-    ),
-    {
-      expr: {
-        type: 'add',
-        left: { type: 'add', left: { type: 'number', value: 1 }, right: { type: 'number', value: 2 } },
-        right: { type: 'add', left: { type: 'number', value: 3 }, right: { type: 'number', value: 4 } }
-      }
     }
   ]
 ];
@@ -356,7 +353,8 @@ describe('schemaFromJson - recursion', () => {
     expect(calculateDenseDataSize(loaded, data)).toEqual(calculateDenseDataSize(original, data));
   });
 
-  // hand written: no defaults, so these rely on schemaFromJson filling them in like the builders
+  // hand written in the 0.4 form with pointers: no defaults, so these rely on schemaFromJson filling them
+  // in like the builders, and on pointersToTemplates
   const handWritten: [string, unknown, number][] = [
     [
       'expression',
@@ -418,39 +416,42 @@ describe('schemaFromJson - recursion', () => {
 
   test.each(handWritten)('hand written %s loads like the builder version', (_name, json, index) => {
     const [, original, data] = recursiveCases[index];
-    const loaded = schemaFromJson(json);
+    const loaded = schemaFromJson(pointersToTemplates(json));
     expect(loaded).toEqual(original);
     expect(densing(loaded, data)).toBe(densing(original, data));
     expect(getDefaultData(loaded)).toEqual(getDefaultData(original));
   });
 
-  // built without `schema()`, which would throw before they could be stringified
-  const invalid: [string, DenseField[], string][] = [
-    ['a pointer to itself', [pointer('p', 'p')], 'Invalid schema: p: pointer target "p" has no finite value'],
+  // written by hand, since `schema()` would throw before they could be stringified
+  const ref = (name: string, i: number) => ({ type: 'reference', name, ref: i });
+  const invalid: [string, unknown, string][] = [
+    ['a template that is a reference to itself', { templates: [ref('p', 0)], fields: [ref('p', 0)] }, 'templates[0]: template "p" has no finite value'],
     [
       'an object that always recurses',
-      [object('n', int('v', 0, 3), pointer('next', 'n'))],
-      'Invalid schema: n.next: pointer target "n" has no finite value'
+      { templates: [{ type: 'object', name: 'n', fields: [{ type: 'int', name: 'v', min: 0, max: 3 }, ref('next', 0)] }], fields: [ref('n', 0)] },
+      'templates[0]: template "n" has no finite value'
     ],
     [
       'an array that can never be empty',
-      [array('list', 1, 3, pointer('item', 'list'))],
-      'Invalid schema: list[].item: pointer target "list" has no finite value'
+      { templates: [{ type: 'array', name: 'list', minLength: 1, maxLength: 3, items: ref('item', 0) }], fields: [ref('list', 0)] },
+      'templates[0]: template "list" has no finite value'
     ],
     [
       'a union whose every variant recurses',
-      [union('u', enumeration('t', ['a', 'b']), { a: [pointer('x', 'u')], b: [pointer('y', 'u')] })],
-      'Invalid schema: u.x: pointer target "u" has no finite value'
+      {
+        templates: [
+          { type: 'union', name: 'u', discriminator: 't', variants: { a: 1, b: 2 } },
+          { type: 'object', name: 'a', fields: [ref('x', 0)] },
+          { type: 'object', name: 'b', fields: [ref('y', 0)] }
+        ],
+        fields: [ref('u', 0)]
+      },
+      'templates[0]: template "u" has no finite value'
     ],
-    ['a missing target', [object('o', pointer('p', 'nope'))], 'Invalid schema: o.p: pointer target "nope" does not exist'],
-    [
-      'an ambiguous target',
-      [object('a', object('node', int('v', 0, 1))), object('b', object('node', int('w', 0, 1))), pointer('p', 'node')],
-      'Invalid schema: p: pointer target "node" is ambiguous, it matches a.node, b.node'
-    ]
+    ['a missing template', { fields: [{ type: 'object', name: 'o', fields: [ref('p', 4)] }] }, 'Invalid schema: o.p: template 4 does not exist']
   ];
 
-  test.each(invalid)('rejects %s', (_name, fields, message) => {
-    expect(() => schemaFromJson(JSON.stringify({ fields }))).toThrow(message);
+  test.each(invalid)('rejects %s', (_name, json, message) => {
+    expect(() => schemaFromJson(JSON.stringify(json))).toThrow(message);
   });
 });

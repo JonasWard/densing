@@ -8,7 +8,6 @@ import {
   int,
   object,
   optional,
-  pointer,
   reference,
   referenceNumeric,
   schema,
@@ -65,8 +64,9 @@ describe('schema shape', () => {
   });
 
   test('a self-referencing template refers to its own index', () => {
-    expect(Tree.templates).toHaveLength(1);
-    expect(JSON.stringify(Tree.templates![0])).toContain('{"type":"reference","name":"child","ref":0}');
+    // the union, then its variants' templates
+    expect(Tree.templates!.map((t) => t.name)).toEqual(['node', 'leaf', 'branch']);
+    expect(JSON.stringify(Tree.templates![2])).toContain('{"type":"reference","name":"child","ref":0}');
   });
 
   test('the input fields are not changed', () => {
@@ -124,7 +124,8 @@ describe('encoding', () => {
         line: [reference('from', vec3), reference('to', vec3)]
       })
     );
-    expect(S.templates).toEqual([vec3]);
+    expect(S.templates![0]).toEqual(vec3);
+    expect(S.templates!.slice(1).map((t) => t.name)).toEqual(['dot', 'line']);
     const data = {
       points: [pose.position, pose.rotation],
       origin: null,
@@ -181,12 +182,6 @@ describe('errors', () => {
   test('a template must have a finite value', () => {
     const loop: Template = template(object('loop', int('v', 0, 1), reference('next', () => loop)));
     expect(() => schema(reference('start', loop))).toThrow('templates[0]: template "loop" has no finite value');
-  });
-
-  test('pointers do not reach into templates', () => {
-    expect(() => schema(reference('position', vec3), pointer('again', 'vec3'))).toThrow(
-      'again: pointer target "vec3" does not exist'
-    );
   });
 
   test('hand-built schemas', () => {

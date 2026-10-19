@@ -9,7 +9,6 @@ export type DenseField =
   | UnionField
   | OptionalField
   | ObjectField
-  | PointerField
   | ReferenceNumericField
   | ReferenceField;
 
@@ -51,11 +50,20 @@ export interface ArrayField {
   maxLength: number;
 }
 
+/**
+ * One of several variants. Each variant is an object template: its data is the template's fields
+ * next to the discriminator, `{ [discriminator]: variant, ...fields }`. Variants that share a shape
+ * share the template.
+ */
 export interface UnionField {
   type: 'union';
   name: string;
-  discriminator: EnumField;
-  variants: Record<string, DenseField[]>;
+  /** the data key that holds the variant's name */
+  discriminator: string;
+  /** variant name -> index into `DenseSchema.templates`; the key order is the order of the encoded index */
+  variants: Record<string, number>;
+  /** the variant of the default data, the first one when not set */
+  defaultVariant?: string;
 }
 
 export interface EnumArrayField {
@@ -78,13 +86,6 @@ export interface ObjectField {
   type: 'object';
   name: string;
   fields: DenseField[];
-}
-
-/** @deprecated Use templates (`ReferenceField`); see `pointer()` */
-export interface PointerField {
-  type: 'pointer';
-  name: string;
-  targetName: string;
 }
 
 /**
@@ -131,7 +132,7 @@ export interface NumericDefinition {
 
 export interface DenseSchema {
   definitions?: NumericDefinition[];
-  /** reference-only shapes, used through `reference` fields (`ref` is the index) */
+  /** reference-only shapes, used through `reference` fields and union variants (by index) */
   templates?: DenseField[];
   fields: DenseField[];
 }
@@ -147,7 +148,6 @@ export const FieldTypes = [
   'union',
   'optional',
   'object',
-  'pointer',
   'reference_numeric',
   'reference'
 ] as const;

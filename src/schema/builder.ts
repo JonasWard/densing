@@ -9,7 +9,6 @@ import {
   EnumArrayField,
   OptionalField,
   ObjectField,
-  PointerField,
   NumericDefinition,
   NumericPreset,
   ReferenceNumericField,
@@ -19,6 +18,7 @@ import {
 import { MAX_FIELD_BITS, constantFieldValueError, fixedMaxStep } from '../values';
 import { validateField, ValidationError } from './validation';
 import { assertValidSchema } from './validate-schema';
+import { linkVariants, variantLinksOf, variantNames } from './variants';
 
 /** Throw when a field's default value would not pass `validate` / `densing` */
 const assertValidDefault = (type: string, field: DenseField, defaultValue: unknown) => {
@@ -61,7 +61,7 @@ export const int = (name: string, min: number, max: number, defaultValue?: numbe
 };
 
 export const enumeration = (name: string, options: readonly string[], defaultValue?: string): EnumField => {
-  if (options.length < 2) throw new Error(`enum "${name}": must have at least 2 values`);
+  if (options.length < 1) throw new Error(`enum "${name}": must have at least 1 value`);
   if (options.some((o) => typeof o !== 'string')) throw new Error(`enum "${name}": options must be strings`);
   if (new Set(options).size !== options.length) throw new Error(`enum "${name}": duplicate values`);
   const field: EnumField = { type: 'enum', name, options, defaultValue: defaultValue ?? options[0] };
@@ -129,26 +129,83 @@ export const array = (name: string, minLength: number, maxLength: number, items:
  * Union Helpers
  * ========================= */
 
-const discriminatorValidation = (name: string, discriminator: EnumField, variants: Record<string, DenseField[]>) => {
-  for (const value of discriminator.options)
-    if (!variants[value]) throw new Error(`union "${name}": missing variant definition for "${value}"`);
-  for (const [value, fields] of Object.entries(variants)) {
-    if (!discriminator.options.includes(value))
-      throw new Error(`union "${name}": variant "${value}" is not an option of discriminator "${discriminator.name}"`);
-    // variant fields share one data object with the discriminator
-    assertUniqueNames(`union "${name}" variant "${value}"`, [discriminator, ...fields]);
+/** A union variant: its fields, or an object template (a function for a template defined later) */
+export type Variant = DenseField[] | Template | (() => Template);
+
+/** Variant names JS objects would reorder (integer-like keys come first), so they cannot keep their order */
+const isIndexLike = (key: string) => /^(0|[1-9]\d*)$/.test(key);
+
+/** Templates made from a variant's fields: `schema()` stores templates with the same shape once */
+const anonymousTemplates = new WeakSet<DenseField>();
+
+/**
+ * One of several variants, told apart by the `discriminator` key of the data. Each variant is an
+ * object template; its data is the template's fields next to the discriminator:
+ * `union('shape', 'type', { circle: [int('r', 0, 7)], square: [int('side', 0, 7)] })` holds
+ * `{ type: 'circle', r: 3 }`. A variant given as fields becomes a template too, and variants with
+ * the same fields share one.
+ * @param discriminator - the data key that holds the variant's name (an enum of the variant names
+ * is still accepted, deprecated)
+ * @param variants - in the order of the encoded index
+ * @param defaultVariant - the variant of the default data, the first one when not given
+ */
+export const union = (
+  name: string,
+  discriminator: string | EnumField,
+  variants: Record<string, Variant>,
+  defaultVariant?: string
+): UnionField => {
+  let key = discriminator as string;
+  if (typeof discriminator !== 'string') {
+    // deprecated form: the enum's options are the variant names, its default is the default variant
+    const { options } = discriminator;
+    for (const value of options)
+      if (!variants[value]) throw new Error(`union "${name}": missing variant definition for "${value}"`);
+    for (const value of Object.keys(variants))
+      if (!options.includes(value))
+        throw new Error(`union "${name}": variant "${value}" is not an option of discriminator "${discriminator.name}"`);
+    key = discriminator.name;
+    variants = Object.fromEntries(options.map((option) => [option, variants[option]]));
+    defaultVariant ??= discriminator.defaultValue;
   }
-};
+  const names = Object.keys(variants);
+  if (!names.length) throw new Error(`union "${name}": needs at least one variant`);
+  for (const variant of names)
+    if (isIndexLike(variant))
+      throw new Error(`union "${name}": variant "${variant}" looks like an index, JS objects would reorder it`);
+  if (defaultVariant !== undefined && !names.includes(defaultVariant))
+    throw new Error(`union "${name}": default variant "${defaultVariant}" is not one of [${names.join(', ')}]`);
 
-export const union = (name: string, discriminator: EnumField, variants: Record<string, DenseField[]>): UnionField => {
-  discriminatorValidation(name, discriminator, variants);
+  const links: Record<string, Template | (() => Template)> = {};
+  for (const variant of names) {
+    const value = variants[variant];
+    const context = `union "${name}" variant "${variant}"`;
+    if (Array.isArray(value)) {
+      assertUniqueNames(context, value);
+      const shape = template(object(variant, ...value));
+      anonymousTemplates.add(shape);
+      links[variant] = shape;
+    } else if (typeof value === 'function') links[variant] = value;
+    else if (value && templates.has(value)) links[variant] = value;
+    else throw new Error(`${context}: expected fields or a template`);
+    // a template given directly can be checked now, one behind a function only by `schema()`
+    const shape = links[variant];
+    if (typeof shape !== 'function') {
+      if (shape.type !== 'object') throw new Error(`${context}: the template must be an object, got "${shape.type}"`);
+      // the variant's fields share one data object with the discriminator
+      if (shape.fields.some((f) => f.name === key)) throw new Error(`${context}: duplicate field name "${key}"`);
+    }
+  }
 
-  return {
+  const field: UnionField = {
     type: 'union',
     name,
-    discriminator,
-    variants
+    discriminator: key,
+    variants: Object.fromEntries(names.map((variant) => [variant, -1])),
+    ...(defaultVariant !== undefined && defaultVariant !== names[0] ? { defaultVariant } : {})
   };
+  linkVariants(field, links);
+  return field;
 };
 
 /* =========================
@@ -206,24 +263,6 @@ export const object = (name: string, ...fields: DenseField[]): ObjectField => {
     type: 'object',
     name,
     fields
-  };
-};
-
-/* =========================
- * Pointer Field Helpers
- * ========================= */
-
-/**
- * A value shaped like the field called `targetName`.
- * @deprecated Use `template()` and `reference()`, which mark the shared shape as reference-only and
- * encode to the same bits; `pointersToTemplates()` (or `densing upgrade`) converts existing schemas.
- * Pointers keep working in 0.4.x and will be removed in 0.5.0.
- */
-export const pointer = (name: string, targetName: string): PointerField => {
-  return {
-    type: 'pointer',
-    name,
-    targetName
   };
 };
 
@@ -352,6 +391,27 @@ const bindReferences = (
     return index;
   };
 
+  // templates made from variant fields, by shape: variants with the same fields share one
+  const anonymousIndex = new Map<string, number>();
+  const anonymous = new Set<number>();
+  const variantIndex = (target: DenseField): number => {
+    if (!anonymousTemplates.has(target)) return indexOf(target);
+    let index = templateIndex.get(target);
+    if (index !== undefined) return index;
+    // fields of a variant cannot refer to their own template, so binding first is safe
+    const bound = bind(target) as ObjectField;
+    const shape = JSON.stringify(bound.fields);
+    index = anonymousIndex.get(shape);
+    if (index === undefined) {
+      index = boundTemplates.length;
+      boundTemplates.push(bound);
+      anonymousIndex.set(shape, index);
+      anonymous.add(index);
+    }
+    templateIndex.set(target, index);
+    return index;
+  };
+
   const bindAll = (list: DenseField[]): DenseField[] => {
     const bound = list.map(bind);
     return bound.every((f, i) => f === list[i]) ? list : bound;
@@ -385,15 +445,26 @@ const bindReferences = (
         return inner === field.field ? field : { ...field, field: inner };
       }
       case 'union': {
-        let changed = false;
-        const variants = Object.fromEntries(
-          Object.entries(field.variants).map(([key, variantFields]) => {
-            const bound = bindAll(variantFields);
-            changed ||= bound !== variantFields;
-            return [key, bound];
-          })
+        const links = variantLinksOf(field);
+        let bound = field; // already bound, e.g. loaded from JSON
+        if (links) {
+          const variants: Record<string, number> = {};
+          for (const variant of variantNames(field)) {
+            const link = links[variant];
+            const target = typeof link === 'function' ? link() : link;
+            if (!target || !templates.has(target))
+              throw new Error(`union "${field.name}" variant "${variant}": the target is not a template, mark it with template()`);
+            variants[variant] = variantIndex(target);
+          }
+          bound = { ...field, variants };
+        }
+        // the schema's unions find their variants on their own, like before templates (e.g. to measure
+        // a field without passing the schema)
+        linkVariants(
+          bound,
+          Object.fromEntries(Object.entries(bound.variants).map(([variant, index]) => [variant, () => boundTemplates[index]]))
         );
-        return changed ? { ...field, variants } : field;
+        return bound;
       }
       default:
         return field;
@@ -401,8 +472,23 @@ const bindReferences = (
   };
 
   // templates given explicitly (from JSON) keep their indices; the ones found through references follow
-  explicitTemplates?.forEach((t) => indexOf(t));
+  explicitTemplates?.forEach((t, i) => {
+    templateIndex.set(t, i);
+    boundTemplates.push(t);
+  });
+  explicitTemplates?.forEach((t, i) => (boundTemplates[i] = bind(t)));
   const boundFields = bindAll(fields);
+
+  // template names are unique: a template made from variant fields is named after the first variant
+  // that uses it, numbered when another template already has that name
+  const used = new Set(boundTemplates.filter((_, i) => !anonymous.has(i)).map((t) => t.name));
+  for (const i of [...anonymous].sort((a, b) => a - b)) {
+    const base = boundTemplates[i].name;
+    let name = base;
+    for (let n = 2; used.has(name); n++) name = `${base}${n}`;
+    used.add(name);
+    if (name !== base) boundTemplates[i] = { ...boundTemplates[i], name };
+  }
   return { definitions, templates: boundTemplates, fields: boundFields };
 };
 
@@ -434,8 +520,8 @@ export type BuiltSchema<T extends DenseField[]> = {
 
 /**
  * The root of a schema. Collects the templates of its `reference` fields and the numeric definitions
- * of its `referenceNumeric` fields, and checks the schema as a whole (`validateSchema`): pointer
- * targets must exist, be unambiguous and have a finite value.
+ * of its `referenceNumeric` fields and union variants, and checks the schema as a whole
+ * (`validateSchema`).
  */
 export const schema = <const T extends DenseField[]>(...fields: T): BuiltSchema<T> =>
   schemaFromParts({}, fields) as BuiltSchema<T>;

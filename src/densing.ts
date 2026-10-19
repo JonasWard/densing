@@ -3,7 +3,7 @@ import { BitWriter, BitReader } from './codec/bits';
 import { BaseSpec } from './encoding/alphabets';
 import { bitsForDigits } from './encoding/radix';
 import { DenseSchema, DenseField, ConstantBitWidthField, assertNeverDenseField } from './schema-type';
-import { resolvePointerOrThrow } from './schema/resolve';
+import { variantNames, variantObject } from './schema/variants';
 import {
   ActivePresets,
   PRESETS_KEY,
@@ -133,7 +133,7 @@ const writeLength = (w: BitWriter, length: number, minLength: number, maxLength:
  * @param w - The bit writer to write the dense data to
  * @param field - The field used as the template to dense the value with
  * @param value - The value to dense
- * @param schema - The root schema (for resolving pointers and numeric definitions)
+ * @param schema - The root schema (for resolving templates and numeric definitions)
  * @param path - Path of the value, used in error messages
  * @param presets - The active preset per definition (default presets when not given)
  * @throws DenseEncodeError when the value does not match the field
@@ -171,16 +171,16 @@ export const densingField = (
 
     case 'union': {
       if (typeof value !== 'object' || value === null) throw new DenseEncodeError(path, 'expected object');
-      const { discriminator } = field;
-      const discValue = value[discriminator.name];
-      const discIdx = discriminator.options.indexOf(discValue);
+      const names = variantNames(field);
+      const discValue = value[field.discriminator];
+      const discIdx = names.indexOf(discValue);
       if (discIdx === -1)
         throw new DenseEncodeError(
-          `${path}.${discriminator.name}`,
-          `invalid discriminator "${discValue}", expected one of [${discriminator.options.join(', ')}]`
+          `${path}.${field.discriminator}`,
+          `invalid discriminator "${discValue}", expected one of [${names.join(', ')}]`
         );
-      w.writeUInt(discIdx, bitsForOptions(discriminator.options));
-      field.variants[discValue].forEach((f) =>
+      w.writeUInt(discIdx, bitsForOptions(names));
+      variantObject(field, discValue, schema).fields.forEach((f) =>
         densingField(w, f, value[f.name], schema, `${path}.${f.name}`, presets)
       );
       break;
@@ -212,10 +212,6 @@ export const densingField = (
       field.fields.forEach((f) => densingField(w, f, value[f.name], schema, `${path}.${f.name}`, presets));
       break;
     }
-
-    case 'pointer':
-      densingField(w, resolvePointerOrThrow(field, schema), value, schema, path, presets);
-      break;
 
     case 'reference':
       densingField(w, resolveTemplateOrThrow(field, schema), value, schema, path, presets);
@@ -325,7 +321,7 @@ const readLength = (r: BitReader, minLength: number, maxLength: number, path: st
  * Internal Helper method to undense a single field of the schema from the given bit reader
  * @param r - The bit reader to read the dense data from
  * @param denseField - The field used as the template to undense the value with
- * @param schema - The root schema (for resolving pointers and numeric definitions)
+ * @param schema - The root schema (for resolving templates and numeric definitions)
  * @param path - Path of the value, used in error messages
  * @param presets - The active preset per definition (default presets when not given)
  * @returns The undense value
@@ -354,14 +350,14 @@ export const undensingField = (
     }
 
     case 'union': {
-      const { discriminator } = denseField;
-      const discPath = `${path}.${discriminator.name}`;
-      const idx = readAt(discPath, () => r.readUInt(bitsForOptions(discriminator.options)));
-      if (idx >= discriminator.options.length)
-        throw new DenseDecodeError(discPath, `discriminator index ${idx} exceeds the ${discriminator.options.length} options`);
-      const key = discriminator.options[idx];
-      const obj: any = { [discriminator.name]: key };
-      denseField.variants[key].forEach(
+      const names = variantNames(denseField);
+      const discPath = `${path}.${denseField.discriminator}`;
+      const idx = readAt(discPath, () => r.readUInt(bitsForOptions(names)));
+      if (idx >= names.length)
+        throw new DenseDecodeError(discPath, `discriminator index ${idx} exceeds the ${names.length} options`);
+      const key = names[idx];
+      const obj: any = { [denseField.discriminator]: key };
+      variantObject(denseField, key, schema).fields.forEach(
         (f) => (obj[f.name] = undensingField(r, f, schema, `${path}.${f.name}`, presets))
       );
       return obj;
@@ -399,9 +395,6 @@ export const undensingField = (
       return Object.fromEntries(
         denseField.fields.map((f) => [f.name, undensingField(r, f, schema, `${path}.${f.name}`, presets)])
       );
-
-    case 'pointer':
-      return undensingField(r, resolvePointerOrThrow(denseField, schema), schema, path, presets);
 
     case 'reference':
       return undensingField(r, resolveTemplateOrThrow(denseField, schema), schema, path, presets);

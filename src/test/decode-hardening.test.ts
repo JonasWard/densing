@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { densing, undensing } from '../densing';
 import { DenseDecodeError } from '../errors';
-import { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, schema, union } from '../schema/builder';
+import { array, bool, enumArray, enumeration, fixed, int, object, optional, reference, schema, template, Template, union } from '../schema/builder';
 import { validate } from '../schema/validation';
 import { DenseSchema } from '../schema-type';
 
@@ -77,17 +77,19 @@ describe('undensing rejects strings the encoder cannot produce', () => {
 });
 
 describe('fuzz: undensing either rejects a string or returns valid data that re-encodes to it', () => {
-  const expr = union('expr', enumeration('type', ['number', 'add', 'neg']), {
-    number: [int('value', 0, 1000)],
-    add: [pointer('left', 'expr'), pointer('right', 'expr')],
-    neg: [pointer('inner', 'expr')]
-  });
+  const expr: Template = template(
+    union('expr', 'type', {
+      number: [int('value', 0, 1000)],
+      add: [reference('left', () => expr), reference('right', () => expr)],
+      neg: [reference('inner', () => expr)]
+    })
+  );
   const schemas: [string, DenseSchema][] = [
     ['ints', schema(int('a', 0, 10), int('b', -3, 3))],
     ['fixed', schema(fixed('t', -40, 125, 0.1), bool('on'))],
     ['collections', schema(array('a', 0, 5, int('v', 0, 5)), enumArray('e', enumeration('d', ['x', 'y', 'z']), 0, 4))],
     ['optional', schema(optional('o', object('in', int('w', 0, 200), enumeration('c', ['r', 'g', 'b']))))],
-    ['recursive', schema(expr)]
+    ['recursive', schema(reference('expr', expr))]
   ];
 
   // deterministic pseudo-random strings

@@ -1,7 +1,7 @@
 // meta-schema.test.ts - Test meta-schema utilities
 import { test, expect } from 'bun:test';
 import { schema } from '../schema/builder';
-import { int, fixed, bool, enumeration, optional, object, array, union, enumArray, pointer } from '../schema/builder';
+import { int, fixed, bool, enumeration, optional, object, array, union, enumArray, reference, template, Template } from '../schema/builder';
 import { getAllUniqueNamesAndOptions } from '../meta/meta-schema';
 import { ZstdCodec } from 'zstd-codec';
 
@@ -131,18 +131,19 @@ test('getAllUniqueNamesAndOptions - union schema', () => {
   expect(names.size).toBe(8);
 });
 
-test('getAllUniqueNamesAndOptions - pointer field schema', () => {
-  const PointerSchema = schema(object('node', int('value', 0, 100), optional('next', pointer('nodeRef', 'node'))));
+test('getAllUniqueNamesAndOptions - recursive template schema', () => {
+  const node: Template = template(object('node', int('value', 0, 100), optional('next', reference('nodeRef', () => node))));
+  const ListSchema = schema(reference('list', node));
 
-  const names = getAllUniqueNamesAndOptions(PointerSchema);
+  const names = getAllUniqueNamesAndOptions(ListSchema);
 
-  // Should collect field name, targetName, and nested fields
+  // the field, the template's name and its fields
+  expect(names.has('list')).toBe(true);
   expect(names.has('node')).toBe(true);
   expect(names.has('value')).toBe(true);
   expect(names.has('next')).toBe(true);
   expect(names.has('nodeRef')).toBe(true);
-  expect(names.has('node')).toBe(true); // targetName
-  expect(names.size).toBe(4); // node, value, next, nodeRef (node is duplicate)
+  expect(names.size).toBe(5);
 });
 
 test('getAllUniqueNamesAndOptions - complex nested schema', () => {
@@ -266,15 +267,16 @@ test('getAllUniqueNamesAndOptions - deeply nested structure', () => {
   expect(names.size).toBe(9);
 });
 
-test('getAllUniqueNamesAndOptions - recursive schema with pointer', () => {
-  const RecursiveSchema = schema(
+test('getAllUniqueNamesAndOptions - recursive tree template', () => {
+  const tree: Template = template(
     object(
       'tree',
       int('value', 0, 100),
-      optional('left', pointer('leftChild', 'tree')),
-      optional('right', pointer('rightChild', 'tree'))
+      optional('left', reference('leftChild', () => tree)),
+      optional('right', reference('rightChild', () => tree))
     )
   );
+  const RecursiveSchema = schema(reference('tree', tree));
 
   const names = getAllUniqueNamesAndOptions(RecursiveSchema);
 
@@ -284,7 +286,7 @@ test('getAllUniqueNamesAndOptions - recursive schema with pointer', () => {
   expect(names.has('leftChild')).toBe(true);
   expect(names.has('right')).toBe(true);
   expect(names.has('rightChild')).toBe(true);
-  // 'tree' appears as both field name and targetName, but Set deduplicates
+  // 'tree' is both the field and the template, but Set deduplicates
   expect(names.size).toBe(6);
 });
 

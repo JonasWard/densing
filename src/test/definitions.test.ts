@@ -8,7 +8,9 @@ import {
   int,
   object,
   optional,
-  pointer,
+  reference,
+  template,
+  Template,
   referenceNumeric,
   schema,
   schemaWithDefinitions,
@@ -147,18 +149,18 @@ describe('round trip', () => {
     expect(() => densing(mixed, { $presets: { m: 'ints' }, values: [0.5] })).toThrow('expected integer');
   });
 
-  test('inside arrays, unions, optionals, objects and through pointers', () => {
+  test('inside arrays, unions, optionals, objects and through templates', () => {
     const angle = definition('angle', { deg: { min: 0, max: 360 }, rad: { min: 0, max: 6.28, precision: 0.01 } });
-    const tree = schemaWithDefinitions(
-      [angle],
-      union('node', enumeration('kind', ['leaf', 'branch']), {
+    const node: Template = template(
+      union('node', 'kind', {
         leaf: [referenceNumeric('a', angle)],
         branch: [
           object('pose', referenceNumeric('rx', angle), optional('ry', referenceNumeric('ry', angle))),
-          array('children', 0, 3, pointer('child', 'node'))
+          array('children', 0, 3, reference('child', () => node))
         ]
       })
     );
+    const tree = schemaWithDefinitions([angle], reference('node', node));
     const data = {
       $presets: { angle: 'rad' },
       node: {
@@ -262,10 +264,9 @@ describe('schema checks', () => {
     ]);
   });
 
-  test('pointer checks still run with definitions', () => {
-    expect(() => schemaWithDefinitions([length], object('p', referenceNumeric('a', length), pointer('q', 'p')))).toThrow(
-      'has no finite value'
-    );
+  test('template checks still run with definitions', () => {
+    const p: Template = template(object('p', referenceNumeric('a', length), reference('q', () => p)));
+    expect(() => schemaWithDefinitions([length], reference('p', p))).toThrow('has no finite value');
   });
 });
 

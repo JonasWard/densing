@@ -1,6 +1,6 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 import { constantFieldValueError, lengthError } from '../values';
-import { resolveDenseFieldByName } from './resolve';
+import { variantNames, variantObject } from './variants';
 import { ActivePresets, PRESETS_KEY, findTemplate, lookupNumeric, presetsErrors } from './definitions';
 
 export interface ValidationError {
@@ -47,8 +47,8 @@ export const validate = (schema: DenseSchema, data: any): ValidationResult => {
 
 /**
  * Validate one value against a field, appending to `errors`
- * @param schema - the root schema; needed to follow `pointer`, `reference` and `reference_numeric` fields (without
- * it they are not checked)
+ * @param schema - the root schema; needed to follow `reference` and `reference_numeric` fields and the
+ * variants of unions loaded from JSON (without it they are not checked)
  * @param presets - the active preset per definition (the data's `$presets`), default presets when not given
  */
 export const validateField = (
@@ -129,24 +129,25 @@ const check = (field: DenseField, value: any, path: string, ctx: Context): void 
         return;
       }
 
-      const discName = field.discriminator.name;
+      const discName = field.discriminator;
       const discValue = value[discName];
+      const names = variantNames(field);
 
       // Check if discriminator value is valid
-      if (typeof discValue !== 'string' || !field.discriminator.options.includes(discValue)) {
+      if (typeof discValue !== 'string' || !names.includes(discValue)) {
         errors.push({
           path: `${path}.${discName}`,
-          message: `invalid discriminator "${discValue}", expected one of [${field.discriminator.options.join(', ')}]`
+          message: `invalid discriminator "${discValue}", expected one of [${names.join(', ')}]`
         });
         return;
       }
 
-      const variantFields = field.variants[discValue];
-      if (!variantFields) {
-        errors.push({
-          path: `${path}.${discName}`,
-          message: `no variant definition for discriminator "${discValue}"`
-        });
+      let variantFields: DenseField[];
+      try {
+        variantFields = variantObject(field, discValue, schema).fields;
+      } catch (error) {
+        if (!schema) return; // a bound union cannot resolve its variants without the root schema
+        errors.push({ path: `${path}.${discName}`, message: error instanceof Error ? error.message : String(error) });
         return;
       }
 
@@ -181,17 +182,6 @@ const check = (field: DenseField, value: any, path: string, ctx: Context): void 
       for (const f of field.fields) {
         recurse(f, value[f.name], `${path}.${f.name}`);
       }
-      return;
-    }
-
-    case 'pointer': {
-      if (!schema) return; // cannot resolve without the root schema
-      const target = resolveDenseFieldByName(schema, field.targetName);
-      if (!target) {
-        errors.push({ path, message: `pointer target "${field.targetName}" does not exist` });
-        return;
-      }
-      recurse(target, value, path);
       return;
     }
 

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, schema, union } from '../schema/builder';
+import { array, bool, enumArray, enumeration, fixed, int, object, optional, schema, union } from '../schema/builder';
 import { densing } from '../densing';
 import { getDefaultData } from '../schema/default-data';
 
@@ -55,8 +55,7 @@ test('the same name in different scopes is fine', () => {
       object('a', int('v', 0, 1)),
       object('b', int('v', 0, 1)),
       union('u', enumeration('t', ['x', 'y']), { x: [int('v', 0, 1)], y: [int('v', 0, 1)] }),
-      array('list', 0, 2, int('v', 0, 1)),
-      pointer('p', 'a')
+      array('list', 0, 2, int('v', 0, 1))
     )
   ).not.toThrow();
 });

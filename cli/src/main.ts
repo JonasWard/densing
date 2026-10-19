@@ -12,7 +12,7 @@ import {
   upgradeCommand,
   validateCommand
 } from './commands';
-import { CliError, loadSchema, parseJson, readStdin, readText } from './io';
+import { CliError, loadSchema, loadSchemaJson, parseJson, readStdin, readText } from './io';
 
 export const helpText = `densing ${version} - bit-pack JSON data into compact strings
 
@@ -28,7 +28,8 @@ Commands:
   paths                         print all field paths of the schema
   schema                        print the schema with all defaults filled in
                                 (--dense: as a compact string, see densingSchema)
-  upgrade                       print the schema with pointers turned into templates
+  upgrade                       print a 0.4 schema in the 0.5 form (pointers and union
+                                variants become templates)
 
 Input is read from stdin when it is "-" or omitted while piping.
 
@@ -110,6 +111,10 @@ export const main = async (argv: string[], io: CliIO = defaultIO): Promise<numbe
     if (!values.schema) throw new CliError('missing schema, pass it with -s <schema.json>', 2);
     if (values.schema === '-' && input === '-') throw new CliError('schema and input cannot both be read from stdin', 2);
 
+    if (command === 'upgrade') {
+      io.stdout(upgradeCommand(await loadSchemaJson(values.schema, io.readStdin), values.compact));
+      return 0;
+    }
     const schema = await loadSchema(values.schema, io.readStdin);
 
     // reads the input argument as text: file / `-` / piped stdin, or the encoded string itself for decode
@@ -156,7 +161,7 @@ export const main = async (argv: string[], io: CliIO = defaultIO): Promise<numbe
         case 'schema':
           return schemaCommand(schema, values.compact, values.dense, values.base);
         case 'upgrade':
-          return upgradeCommand(schema, values.compact);
+          throw new Error('unreachable: handled before the schema is loaded');
       }
     })();
 

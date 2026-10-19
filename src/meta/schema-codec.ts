@@ -7,7 +7,6 @@ import {
   DenseField,
   DenseSchema,
   EnumField,
-  FieldTypes,
   FixedPointField,
   NumericDefinition,
   OptionalField,
@@ -15,11 +14,19 @@ import {
 } from '../schema-type';
 import { MAX_FIELD_BITS, fixedFromUInt, fixedMaxStep, uIntForFixed } from '../values';
 import { assertValidSchema } from '../schema/validate-schema';
-import { schemaFromJson } from '../schema/from-json';
+import { fieldFromJson, schemaFromJson } from '../schema/from-json';
+import { pointersToTemplates } from '../schema/migrate';
+import { defaultVariant, variantNames } from '../schema/variants';
 
-const VERSION = 0;
+/** The version written; version 0 (densing 0.4) is still read */
+const VERSION = 1;
 const VERSION_BITS = 3;
-const TYPE_BITS = bitsForRange(FieldTypes.length);
+/** The field type codes of each version. A version's table never changes */
+const FIELD_TYPES = {
+  0: ['bool', 'int', 'enum', 'fixed', 'array', 'enum_array', 'union', 'optional', 'object', 'pointer', 'reference_numeric', 'reference'],
+  1: ['bool', 'int', 'enum', 'fixed', 'array', 'enum_array', 'union', 'optional', 'object', 'reference_numeric', 'reference']
+} as const;
+const TYPE_BITS = { 0: bitsForRange(FIELD_TYPES[0].length), 1: bitsForRange(FIELD_TYPES[1].length) };
 const MAX_CODE_POINT = 0x10ffff;
 /** Nesting deeper than this is rejected when decoding, so malformed input cannot exhaust the stack */
 const MAX_DEPTH = 256;
@@ -284,10 +291,8 @@ const collectOptionals = (schema: DenseSchema): OptionalField[] => {
       case 'array':
         walk(field.items);
         break;
-      case 'union':
-        field.discriminator.options.forEach((option) => field.variants[option].forEach(walk));
-        break;
       default:
+        // a union's variants are templates, walked with the templates
         break;
     }
   };
@@ -361,7 +366,7 @@ const writeFixed = (out: Out, field: Pick<FixedPointField, 'min' | 'max' | 'prec
 
 const writeEnum = (out: Out, field: EnumField) => {
   out.S(field.name);
-  out.U(field.options.length - 2);
+  out.U(field.options.length - 1);
   field.options.forEach((option) => out.S(option));
   const index = field.options.indexOf(field.defaultValue);
   out.uint(index === 0 ? 0 : 1, 1);
@@ -369,7 +374,7 @@ const writeEnum = (out: Out, field: EnumField) => {
 };
 
 const writeField = (out: Out, field: DenseField, ctx: WriteContext): void => {
-  out.uint(FieldTypes.indexOf(field.type), TYPE_BITS);
+  out.uint((FIELD_TYPES[VERSION] as readonly string[]).indexOf(field.type), TYPE_BITS[VERSION]);
   if (field.type === 'enum') return writeEnum(out, field);
   out.S(field.name);
   switch (field.type) {
@@ -399,17 +404,22 @@ const writeField = (out: Out, field: DenseField, ctx: WriteContext): void => {
     case 'object':
       out.U(field.fields.length);
       return field.fields.forEach((f) => writeField(out, f, ctx));
-    case 'union':
-      writeEnum(out, field.discriminator);
-      return field.discriminator.options.forEach((option) => {
-        out.U(field.variants[option].length);
-        field.variants[option].forEach((f) => writeField(out, f, ctx));
+    case 'union': {
+      const names = variantNames(field);
+      out.S(field.discriminator);
+      out.U(names.length - 1);
+      names.forEach((name) => {
+        out.S(name);
+        out.uint(field.variants[name], bitsForRange(ctx.schema.templates?.length ?? 0));
       });
+      const index = names.indexOf(defaultVariant(field));
+      out.uint(index === 0 ? 0 : 1, 1);
+      if (index !== 0) out.uint(index, bitsForRange(names.length));
+      return;
+    }
     case 'optional':
       out.uint(optionalDefault(field, ctx.schema), 2);
       return writeField(out, field.field, ctx);
-    case 'pointer':
-      return out.S(field.targetName);
     case 'reference_numeric':
       return out.uint(ctx.definitionIndex.get(field.ref)!, bitsForRange(ctx.definitionIndex.size));
     case 'reference':
@@ -546,8 +556,13 @@ class Reader {
   readonly optionals: { node: Json; state: OptionalDefault }[] = [];
   definitionNames: string[] = [];
   templateCount = 0;
+  /** a version 0 schema with `pointer` fields, converted with `pointersToTemplates` */
+  hasPointers = false;
 
-  constructor(readonly r: BitReader) {}
+  constructor(
+    readonly r: BitReader,
+    readonly version: 0 | 1
+  ) {}
 
   fail(path: string, message: string): never {
     throw new DenseDecodeError(path, message);
@@ -682,7 +697,8 @@ class Reader {
   }
 
   enumBody(name: string, path: string): Json {
-    const count = this.count(path, 2);
+    // version 0 enums have at least two options
+    const count = this.count(path, this.version === 0 ? 2 : 1);
     const options = Array.from({ length: count }, () => this.S(path));
     const index = this.uint(1, path) ? this.index(count, path, 'option') : 0;
     return { type: 'enum', name, options, defaultValue: options[index] };
@@ -690,8 +706,8 @@ class Reader {
 
   field(path: string, depth: number): Json {
     if (depth > MAX_DEPTH) this.fail(path, `nesting deeper than ${MAX_DEPTH}`);
-    const typeIndex = this.uint(TYPE_BITS, path);
-    const type = FieldTypes[typeIndex];
+    const typeIndex = this.uint(TYPE_BITS[this.version], path);
+    const type = FIELD_TYPES[this.version][typeIndex];
     if (!type) this.fail(path, `unknown field type ${typeIndex}`);
     const name = this.S(path);
     const at = `${path}.${name}`;
@@ -724,9 +740,23 @@ class Reader {
       case 'object':
         return { type, name, fields: this.fields(at, depth + 1) };
       case 'union': {
-        const discriminator = this.enumBody(this.S(at), at);
-        const variants = Object.fromEntries((discriminator.options as string[]).map((option) => [option, this.fields(`${at}.${option}`, depth + 1)]));
-        return { type, name, discriminator, variants };
+        if (this.version === 0) {
+          // an enum discriminator and the fields of each variant: `schemaFromJson` makes them templates
+          const discriminator = this.enumBody(this.S(at), at);
+          const variants = Object.fromEntries((discriminator.options as string[]).map((option) => [option, this.fields(`${at}.${option}`, depth + 1)]));
+          return { type, name, discriminator, variants };
+        }
+        const discriminator = this.S(at);
+        const count = this.count(at, 1);
+        const variants: Record<string, number> = {};
+        for (let i = 0; i < count; i++) {
+          const variant = this.S(at);
+          if (Object.prototype.hasOwnProperty.call(variants, variant)) this.fail(at, `duplicate variant "${variant}"`);
+          variants[variant] = this.index(this.templateCount, `${at}.${variant}`, 'template');
+        }
+        const names = Object.keys(variants);
+        const index = this.uint(1, at) ? this.index(count, at, 'variant') : 0;
+        return { type, name, discriminator, variants, ...(index ? { defaultVariant: names[index] } : {}) };
       }
       case 'optional': {
         const state = this.uint(2, at) as OptionalDefault;
@@ -737,13 +767,14 @@ class Reader {
         return node;
       }
       case 'pointer':
+        this.hasPointers = true;
         return { type, name, targetName: this.S(at) };
       case 'reference_numeric':
         return { type, name, ref: this.definitionNames[this.index(this.definitionNames.length, at, 'definition')] };
       case 'reference':
         return { type, name, ref: this.index(this.templateCount, at, 'template') };
       default:
-        return assertNeverDenseField(type as never);
+        return this.fail(path, `unknown field type ${type}`);
     }
   }
 
@@ -775,9 +806,10 @@ class Reader {
  * when it decodes to a schema the builders reject
  */
 export const undensingSchema = (encoded: string, base: BaseSpec = 'base64url'): DenseSchema => {
-  const reader = new Reader(BitReader.getFromBase(encoded, base));
-  const version = reader.uint(VERSION_BITS, 'version');
-  if (version !== VERSION) reader.fail('version', `unsupported schema encoding version ${version}`);
+  const r = BitReader.getFromBase(encoded, base);
+  const version = new Reader(r, VERSION).uint(VERSION_BITS, 'version');
+  if (version !== 0 && version !== 1) throw new DenseDecodeError('version', `unsupported schema encoding version ${version}`);
+  const reader = new Reader(r, version);
   const hasDefinitions = reader.uint(1, 'header') === 1;
   const hasTemplates = reader.uint(1, 'header') === 1;
   reader.header('header');
@@ -797,22 +829,26 @@ export const undensingSchema = (encoded: string, base: BaseSpec = 'base64url'): 
 
   const deferred = reader.optionals.filter((o) => o.state >= OptionalDefault.Dense);
   if (deferred.length) {
-    // values need the rebuilt schema: their inner fields may refer to templates and pointer targets
+    if (reader.hasPointers)
+      reader.fail(
+        'version',
+        'a version 0 schema with pointers and densed optional defaults cannot be read: decode it with densing 0.4 and convert it with pointersToTemplates'
+      );
+    // values need the rebuilt schema: their inner fields may refer to templates and definitions
     const structure = schemaFromJson(json);
-    const optionals = collectOptionals(structure);
-    reader.optionals.forEach(({ node, state }, i) => {
-      if (state === OptionalDefault.Dense)
-        node.defaultValue = undensingField(reader.r, optionals[i].field, structure, `${node.name}.default`);
+    reader.optionals.forEach(({ node, state }) => {
+      const at = `${node.name}.default`;
+      if (state === OptionalDefault.Dense) node.defaultValue = undensingField(reader.r, fieldFromJson(node.field, at), structure, at);
       else if (state === OptionalDefault.Json) {
-        const text = reader.S(`${node.name}.default`);
+        const text = reader.S(at);
         try {
           node.defaultValue = JSON.parse(text);
         } catch {
-          reader.fail(`${node.name}.default`, 'default value is not valid JSON');
+          reader.fail(at, 'default value is not valid JSON');
         }
       }
     });
   }
   reader.r.assertCanonicalEnd();
-  return schemaFromJson(json);
+  return schemaFromJson(reader.hasPointers ? pointersToTemplates(json) : json);
 };

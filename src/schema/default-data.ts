@@ -1,6 +1,6 @@
 import { DenseSchema, DenseField, UnionField, assertNeverDenseField } from '../schema-type';
 import { getDenseFieldBitWidthRange } from '../api';
-import { resolvePointerOrThrow } from './resolve';
+import { defaultVariant, variantNames, variantObject, variantTemplate } from './variants';
 import {
   PRESETS_KEY,
   defaultPresetName,
@@ -28,15 +28,14 @@ export const getDefaultData = (schema: DenseSchema): any => {
 };
 
 /**
- * The union variant with the smallest encoding, preferring the discriminator's default on a tie.
+ * The union variant with the smallest encoding, preferring the default variant on a tie.
  * Following it always terminates: every variant field is strictly smaller than the union itself.
  */
 const smallestVariant = (field: UnionField, schema: DenseSchema): string => {
-  const variantMin = (key: string) =>
-    field.variants[key].reduce((sum, f) => sum + getDenseFieldBitWidthRange(f, schema).min, 0);
-  return field.discriminator.options.reduce(
+  const variantMin = (key: string) => getDenseFieldBitWidthRange(variantTemplate(field, key, schema), schema).min;
+  return variantNames(field).reduce(
     (best, key) => (variantMin(key) < variantMin(best) ? key : best),
-    field.discriminator.defaultValue
+    defaultVariant(field)
   );
 };
 
@@ -44,9 +43,9 @@ const smallestVariant = (field: UnionField, schema: DenseSchema): string => {
  * Helper method to get the default value for a field as defined by a schema
  * @note this method will recurse for some field types
  * @param field - `Field` definition
- * @param schema - Root schema, for resolving pointers
+ * @param schema - Root schema, for resolving templates
  * @param expanding - fields whose default is currently being built on this branch
- * @param minimal - build the smallest value instead of the defaults: used once a pointer leads back
+ * @param minimal - build the smallest value instead of the defaults: used once a reference leads back
  * into a field that is already being expanded, so that recursive schemas get a finite default
  * @returns `any` - The default value for the field
  */
@@ -83,17 +82,16 @@ const getDefaultValueForField = (
       );
 
     case 'union': {
-      const discriminatorValue = minimal ? smallestVariant(field, schema) : field.discriminator.defaultValue;
-      const result: any = { [field.discriminator.name]: discriminatorValue };
-      field.variants[discriminatorValue].forEach((variantField) => {
-        result[variantField.name] = getDefaultValueForField(variantField, schema, inner, minimal);
+      const discriminatorValue = minimal ? smallestVariant(field, schema) : defaultVariant(field);
+      const result: any = { [field.discriminator]: discriminatorValue };
+      const variant = variantObject(field, discriminatorValue, schema);
+      // a variant reached again on this branch is a recursion, like a reference back into itself
+      const minimalVariant = minimal || expanding.has(variant);
+      const variantInner = new Set(inner).add(variant);
+      variant.fields.forEach((variantField) => {
+        result[variantField.name] = getDefaultValueForField(variantField, schema, variantInner, minimalVariant);
       });
       return result;
-    }
-
-    case 'pointer': {
-      const target = resolvePointerOrThrow(field, schema);
-      return getDefaultValueForField(target, schema, inner, minimal || expanding.has(target));
     }
 
     case 'reference': {

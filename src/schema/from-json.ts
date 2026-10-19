@@ -1,4 +1,4 @@
-import { DenseField, DenseSchema, EnumField, FieldTypes, NumericDefinition, NumericPreset } from '../schema-type';
+import { DenseField, DenseSchema, EnumField, FieldTypes, NumericDefinition, NumericPreset, UnionField } from '../schema-type';
 import {
   array,
   bool,
@@ -9,7 +9,6 @@ import {
   int,
   object,
   optional,
-  pointer,
   referenceNumeric,
   schemaFromParts,
   union
@@ -24,10 +23,9 @@ const allowedKeys: Record<DenseField['type'], readonly string[]> = {
   fixed: ['type', 'name', 'min', 'max', 'precision', 'defaultValue'],
   array: ['type', 'name', 'minLength', 'maxLength', 'items'],
   enum_array: ['type', 'name', 'enum', 'minLength', 'maxLength', 'defaultValue'],
-  union: ['type', 'name', 'discriminator', 'variants'],
+  union: ['type', 'name', 'discriminator', 'variants', 'defaultVariant'],
   optional: ['type', 'name', 'field', 'defaultValue'],
   object: ['type', 'name', 'fields'],
-  pointer: ['type', 'name', 'targetName'],
   reference_numeric: ['type', 'name', 'ref'],
   reference: ['type', 'name', 'ref']
 };
@@ -69,10 +67,13 @@ const requireStringArray = (json: JsonObject, key: string, path: string): string
   return value as string[];
 };
 
-const fieldFromJson = (json: unknown, path: string): DenseField => {
+/** Load one field; exported for the schema codec, not part of the public API */
+export const fieldFromJson = (json: unknown, path: string): DenseField => {
   if (!isObject(json)) return fail(path, 'field must be an object');
 
   const type = json.type;
+  if (type === 'pointer')
+    return fail(path, 'pointer fields were removed in 0.5.0, convert the schema with pointersToTemplates (or `densing upgrade`)');
   if (typeof type !== 'string' || !(FieldTypes as readonly string[]).includes(type))
     return fail(path, `"type" must be one of [${FieldTypes.join(', ')}], got ${JSON.stringify(type)}`);
 
@@ -129,22 +130,34 @@ const fieldFromJson = (json: unknown, path: string): DenseField => {
         );
       }
       case 'union': {
-        const discriminator = enumFromJson(json.discriminator, `${path}.discriminator`);
         if (!isObject(json.variants)) return fail(path, '"variants" must be an object');
-        const variants = Object.fromEntries(
-          Object.entries(json.variants).map(([key, fields]) => [
-            key,
-            fieldsFromJson(fields, `${path}.variants.${key}`)
-          ])
-        );
-        return union(name, discriminator, variants);
+        if (isObject(json.discriminator)) {
+          // the 0.4 form: an enum discriminator and the fields of each variant; the fields become templates
+          const discriminator = enumFromJson(json.discriminator, `${path}.discriminator`);
+          if (json.defaultVariant !== undefined) fail(path, '"defaultVariant" goes with a string discriminator');
+          const variants = Object.fromEntries(
+            Object.entries(json.variants).map(([key, fields]) => [key, fieldsFromJson(fields, `${path}.variants.${key}`)])
+          );
+          return union(name, discriminator, variants);
+        }
+        const discriminator = requireString(json, 'discriminator', path);
+        const variants: Record<string, number> = {};
+        for (const [key, ref] of Object.entries(json.variants)) {
+          if (typeof ref !== 'number' || !Number.isInteger(ref) || ref < 0)
+            fail(`${path}.variants.${key}`, 'must be the index of a template');
+          variants[key] = ref as number;
+        }
+        if (!Object.keys(variants).length) fail(path, 'a union needs at least one variant');
+        const defaultVariant = json.defaultVariant ?? undefined;
+        if (defaultVariant !== undefined && typeof defaultVariant !== 'string') fail(path, '"defaultVariant" must be a string');
+        const field: UnionField = { type: 'union', name, discriminator, variants };
+        if (defaultVariant !== undefined && defaultVariant !== Object.keys(variants)[0]) field.defaultVariant = defaultVariant as string;
+        return field;
       }
       case 'optional':
         return optional(name, fieldFromJson(json.field, `${path}.field`), json.defaultValue);
       case 'object':
         return object(name, ...fieldsFromJson(json.fields, `${path}.fields`));
-      case 'pointer':
-        return pointer(name, requireString(json, 'targetName', path));
       case 'reference_numeric':
         return referenceNumeric(name, requireString(json, 'ref', path));
       case 'reference': {
@@ -201,8 +214,9 @@ const definitionFromJson = (json: unknown, path: string): NumericDefinition => {
 /**
  * Load a schema from its JSON representation (e.g. the output of `JSON.stringify(schema)`)
  * Every field, template and definition is rebuilt with the builder helpers and the result checked
- * like `schema()` does, so the same validation applies (including `validateSchema`'s pointer,
- * definition and template checks) and missing defaults are filled in
+ * like `schema()` does, so the same validation applies (including `validateSchema`'s definition,
+ * template and union checks) and missing defaults are filled in. Unions in the 0.4 form (an enum
+ * discriminator with the fields of each variant) are converted: the fields become templates
  * @param input - the schema as JSON string or already parsed object
  * @returns `DenseSchema` - the validated schema
  * @throws if the input is not a valid schema, the message contains the path of the offending field
@@ -233,7 +247,7 @@ export const schemaFromJson = (input: unknown): DenseSchema => {
   try {
     return schemaFromParts({ definitions, templates }, fields);
   } catch (error) {
-    // whole-schema checks (duplicate top-level names, pointer targets), their messages carry the data path
+    // whole-schema checks (duplicate top-level names, templates), their messages carry the data path
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid schema: ${message.replace(/^invalid schema: /, '')}`);
   }

@@ -1,12 +1,12 @@
 // api.ts - High-level API methods for schema introspection and size calculation
-import { DenseSchema, DenseField, PointerField, ReferenceField, assertNeverDenseField } from './schema-type';
+import { DenseSchema, DenseField, UnionField, assertNeverDenseField } from './schema-type';
 import {
   getBitWidthForContantBitWidthFields,
   bitsForEnumArrayContent,
   bitsForMinMaxLength,
   bitsForOptions
 } from './densing';
-import { resolvePointerOrThrow } from './schema/resolve';
+import { discriminatorField, variantNames, variantObject, variantTemplate } from './schema/variants';
 import {
   ActivePresets,
   PRESETS_KEY,
@@ -23,8 +23,8 @@ const repeatBits = (count: number, bits: number): number => (count === 0 ? 0 : c
 
 type Range = { min: number; max: number };
 
-/** The range of the pointer target or template a pointer / reference refers to */
-type TargetRange = (field: PointerField | ReferenceField) => Range;
+/** The range of a template, as reached through a reference or a union variant */
+type TargetRange = (template: DenseField) => Range;
 
 const sumRanges = (fields: DenseField[], schema: DenseSchema | undefined, targetRange: TargetRange) =>
   fields.reduce(
@@ -92,8 +92,9 @@ const fieldBitWidthRange = (field: DenseField, schema: DenseSchema | undefined, 
 
     case 'union': {
       // Union: discriminator bits + the smallest / largest variant
-      const discriminatorBits = bitsForOptions(field.discriminator.options);
-      const variantRanges = Object.values(field.variants).map((fields) => sumRanges(fields, schema, targetRange));
+      const names = variantNames(field);
+      const discriminatorBits = bitsForOptions(names);
+      const variantRanges = names.map((key) => targetRange(variantTemplate(field, key, schema)));
 
       return {
         min: discriminatorBits + Math.min(...variantRanges.map((r) => r.min)),
@@ -101,9 +102,8 @@ const fieldBitWidthRange = (field: DenseField, schema: DenseSchema | undefined, 
       };
     }
 
-    case 'pointer':
     case 'reference':
-      return targetRange(field);
+      return targetRange(resolveTemplateOrThrow(field, schema));
 
     default:
       return assertNeverDenseField(field);
@@ -114,17 +114,14 @@ const fieldBitWidthRange = (field: DenseField, schema: DenseSchema | undefined, 
  * Calculate the bit width RANGE for a field (min and max possible bits)
  * Returns the minimum and maximum number of bits that can be used to encode this field.
  * For recursive schemas `max` is `Infinity`: there is no static upper bound.
- * @param schema - the root schema, required to resolve `pointer` and `reference_numeric` fields. The
+ * @param schema - the root schema, required to resolve templates and `reference_numeric` fields. The
  * ranges are cached per schema object: a schema must not be changed once it has been passed to densing
  */
 export const getDenseFieldBitWidthRange = (field: DenseField, schema?: DenseSchema): { min: number; max: number } =>
   schemaRanges(schema)(field);
 
-const resolveTarget = (field: PointerField | ReferenceField, schema: DenseSchema | undefined): DenseField =>
-  field.type === 'pointer' ? resolvePointerOrThrow(field, schema) : resolveTemplateOrThrow(field, schema);
-
 /**
- * `getDenseFieldBitWidthRange` for many fields of one schema. Each pointer target and template is
+ * `getDenseFieldBitWidthRange` for many fields of one schema. Each template is
  * measured once and shared; following every path through templates that refer to each other instead
  * takes exponential time.
  */
@@ -133,8 +130,7 @@ const bitWidthRanges = (schema?: DenseSchema): ((field: DenseField) => Range) =>
   // until nothing changes; a target that stays at Infinity has no finite value
   const minOf = new Map<DenseField, number>();
   let changed = false;
-  const minEstimate: TargetRange = (field) => {
-    const target = resolveTarget(field, schema);
+  const minEstimate: TargetRange = (target) => {
     if (!minOf.has(target)) {
       minOf.set(target, Infinity);
       changed = true;
@@ -146,7 +142,7 @@ const bitWidthRanges = (schema?: DenseSchema): ((field: DenseField) => Range) =>
   // nest without limit
   const maxOf = new Map<DenseField, number>();
   const expanding = new Set<DenseField>();
-  const maxEstimate: TargetRange = (field) => ({ min: 0, max: targetMax(resolveTarget(field, schema)) });
+  const maxEstimate: TargetRange = (target) => ({ min: 0, max: targetMax(target) });
   const targetMax = (target: DenseField): number => {
     if (expanding.has(target)) return Infinity;
     if (!maxOf.has(target)) {
@@ -170,10 +166,7 @@ const bitWidthRanges = (schema?: DenseSchema): ((field: DenseField) => Range) =>
         }
       }
     }
-    return fieldBitWidthRange(field, schema, (f) => {
-      const target = resolveTarget(f, schema);
-      return { min: minOf.get(target) ?? Infinity, max: targetMax(target) };
-    });
+    return fieldBitWidthRange(field, schema, (target) => ({ min: minOf.get(target) ?? Infinity, max: targetMax(target) }));
   };
 };
 
@@ -243,21 +236,17 @@ export const calculateDenseFieldBitWidth = (
     }
 
     case 'union': {
-      const discriminatorBits = bitsForOptions(field.discriminator.options);
-      const variantType = value?.[field.discriminator.name];
-      if (!variantType) return discriminatorBits;
+      const names = variantNames(field);
+      const discriminatorBits = bitsForOptions(names);
+      const variantType = value?.[field.discriminator];
+      if (!names.includes(variantType)) return discriminatorBits;
 
-      const variantFields = field.variants[variantType] || [];
+      const variantFields = variantObject(field, variantType, schema).fields;
       const variantBits = variantFields.reduce(
         (sum, f) => sum + calculateDenseFieldBitWidth(f, value?.[f.name], schema, presets),
         0
       );
       return discriminatorBits + variantBits;
-    }
-
-    case 'pointer': {
-      // Pointer: resolve the target field and calculate its bit width
-      return calculateDenseFieldBitWidth(resolvePointerOrThrow(field, schema), value, schema, presets);
     }
 
     case 'reference':
@@ -389,24 +378,26 @@ export const calculateDenseDataSize = (schema: DenseSchema, data: any): DataSize
  * - union       `action.type`, `action.delay` (the discriminator, or a field of any variant; when
  *                                            several variants declare the same name, the first
  *                                            variant in declaration order wins)
- * - pointer     `expr.left.value`            (`getFieldByPath` continues in the pointer's target;
- *                                            the walk does not, since that may recurse forever)
+ * - reference   `expr.left.value`            (`getFieldByPath` continues in the template; the walk
+ *                                            does not, since that may recurse forever)
  */
 
+/** The fields of every variant, in declaration order (the walk and the paths list each one) */
+const allVariantFields = (field: UnionField, schema: DenseSchema | undefined): DenseField[] =>
+  variantNames(field).flatMap((key) => variantObject(field, key, schema).fields);
+
 /** The fields one level below `field`, as addressed by a path segment */
-const childFields = (field: DenseField, schema: DenseSchema, pointerDepth: number): DenseField[] => {
+const childFields = (field: DenseField, schema: DenseSchema, depth: number): DenseField[] => {
   switch (field.type) {
     case 'object':
       return field.fields;
     case 'optional':
       return [field.field];
     case 'union':
-      return [field.discriminator, ...Object.values(field.variants).flat()];
-    case 'pointer':
-      // a pointer to a pointer to ... is bounded by the number of fields in the schema
-      return pointerDepth > 64 ? [] : childFields(resolvePointerOrThrow(field, schema), schema, pointerDepth + 1);
+      return [discriminatorField(field), ...allVariantFields(field, schema)];
     case 'reference':
-      return pointerDepth > 64 ? [] : childFields(resolveTemplateOrThrow(field, schema), schema, pointerDepth + 1);
+      // a reference to a template that is a reference to ... is bounded by the number of templates
+      return depth > 64 ? [] : childFields(resolveTemplateOrThrow(field, schema), schema, depth + 1);
     case 'array':
     case 'bool':
     case 'int':
@@ -456,34 +447,40 @@ const walkField = (
   field: DenseField,
   callback: (field: DenseField, path: string, parent?: DenseField) => void,
   prefix: string,
-  parent?: DenseField
+  schema: DenseSchema | undefined,
+  parent?: DenseField,
+  /** the variant templates being walked, so that a variant containing its own union ends */
+  variantStack: Set<DenseField> = new Set()
 ) => {
   const fieldPath = prefix ? `${prefix}.${field.name}` : field.name;
   callback(field, fieldPath, parent);
   switch (field.type) {
     case 'object':
-      field.fields.forEach((f) => walkField(f, callback, fieldPath, field));
+      field.fields.forEach((f) => walkField(f, callback, fieldPath, schema, field, variantStack));
       break;
     case 'array':
-      walkField(field.items, callback, `${fieldPath}[]`, field);
+      walkField(field.items, callback, `${fieldPath}[]`, schema, field, variantStack);
       break;
     case 'optional':
-      walkField(field.field, callback, fieldPath, field);
+      walkField(field.field, callback, fieldPath, schema, field, variantStack);
       break;
     case 'union':
-      // Walk the discriminator field
-      walkField(field.discriminator, callback, fieldPath, field);
-      // Walk all variant fields
-      Object.values(field.variants).forEach((variantFields) =>
-        variantFields.forEach((f) => walkField(f, callback, fieldPath, field))
-      );
+      // the discriminator, then the fields of every variant; a variant already being walked further
+      // up is skipped, like a reference
+      walkField(discriminatorField(field), callback, fieldPath, schema, field, variantStack);
+      for (const key of variantNames(field)) {
+        const template = variantObject(field, key, schema);
+        if (variantStack.has(template)) continue;
+        variantStack.add(template);
+        template.fields.forEach((f) => walkField(f, callback, fieldPath, schema, field, variantStack));
+        variantStack.delete(template);
+      }
       break;
     case 'bool':
     case 'int':
     case 'fixed':
     case 'enum':
     case 'enum_array':
-    case 'pointer':
     case 'reference_numeric':
     case 'reference':
       break;
@@ -494,14 +491,14 @@ const walkField = (
 
 /**
  * Walk all fields in schema (including nested), in the path grammar above; `parent` is the
- * enclosing field (`undefined` at the top level). Pointers are not followed.
+ * enclosing field (`undefined` at the top level). References are not followed.
  * @example walkDenseSchema(schema, (field, path) => console.log(path, field))
  */
 export const walkDenseSchema = (
   schema: DenseSchema,
   callback: (field: DenseField, path: string, parent?: DenseField) => void,
   prefix = ''
-): void => schema.fields.forEach((f) => walkField(f, callback, prefix));
+): void => schema.fields.forEach((f) => walkField(f, callback, prefix, schema));
 
 /**
  * Get all paths in schema

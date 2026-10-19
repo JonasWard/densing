@@ -1,14 +1,14 @@
-import { DenseField, DenseSchema, assertNeverDenseField } from '../schema-type';
+import { DenseField, DenseSchema, UnionField, assertNeverDenseField } from '../schema-type';
 import { schemaRanges } from '../api';
-import { resolveDenseFieldByName } from './resolve';
 import { ValidationError, ValidationResult } from './validation';
+import { variantNames } from './variants';
 import { PRESETS_KEY, findDefinition, findTemplate, presetNames, schemaDefinitions, schemaTemplates } from './definitions';
 
 /**
- * Every field a pointer can resolve to, with its path, in the order `resolveDenseFieldByName`
- * searches them. Union discriminators are not pointer targets.
+ * Every field with its path, depth first. Union variants are templates, whose fields are collected
+ * with the templates.
  */
-const collectPointerCandidates = (
+const collectCandidates = (
   fields: DenseField[],
   prefix: string,
   out: { field: DenseField; path: string }[]
@@ -18,23 +18,20 @@ const collectPointerCandidates = (
     out.push({ field, path });
     switch (field.type) {
       case 'object':
-        collectPointerCandidates(field.fields, path, out);
-        break;
-      case 'union':
-        Object.values(field.variants).forEach((variantFields) => collectPointerCandidates(variantFields, path, out));
+        collectCandidates(field.fields, path, out);
         break;
       case 'array':
-        collectPointerCandidates([field.items], `${path}[]`, out);
+        collectCandidates([field.items], `${path}[]`, out);
         break;
       case 'optional':
-        collectPointerCandidates([field.field], path, out);
+        collectCandidates([field.field], path, out);
         break;
+      case 'union':
       case 'bool':
       case 'int':
       case 'fixed':
       case 'enum':
       case 'enum_array':
-      case 'pointer':
       case 'reference_numeric':
       case 'reference':
         break;
@@ -50,15 +47,6 @@ const collectPointerCandidates = (
  * depend on the whole schema. `schema()` runs this and throws on the first error; call it directly
  * for schemas built by hand or loaded from JSON.
  *
- * Pointer rules:
- * - the target must exist
- * - the target name must be unique among all fields a pointer can resolve to (object fields, union
- *   variant fields, array items, optional inner fields), so which field a pointer refers to never
- *   depends on declaration order
- * - the target must have a finite value: a cycle has to pass through a union variant, an optional or
- *   an array that may be empty, otherwise no data can ever be encoded (and `pointer('p', 'p')`
- *   would loop forever)
- *
  * Numeric definition rules:
  * - definition names are unique, every definition has at least one preset and its default preset
  *   is one of them
@@ -66,18 +54,24 @@ const collectPointerCandidates = (
  * - no top-level field is called `$presets`, the data key that selects the presets
  *
  * Template rules:
- * - every `reference` field's `ref` is an index into `templates`
+ * - every `reference` field's `ref` and every union variant is an index into `templates`
  * - template names are unique, and every template is referenced (from the fields, or from a template
  *   that is): templates exist only to be referenced
- * - every template has a finite value, like a pointer target
- * - templates are not pointer targets; pointers inside templates are checked like the others
+ * - every template has a finite value: a cycle has to pass through a union variant, an optional or
+ *   an array that may be empty, otherwise no data can ever be encoded
+ *
+ * Union rules:
+ * - a union has at least one variant; variant names are not integer-like (JS objects would reorder
+ *   them), and the default variant is one of them
+ * - every variant's template is an object (or a reference to one), and none of its fields is named
+ *   like the discriminator: they share one data object
  */
 export const validateSchema = (schema: DenseSchema): ValidationResult => {
   const errors: ValidationError[] = [];
-  const candidates = collectPointerCandidates(schema.fields, '', []);
+  const candidates = collectCandidates(schema.fields, '', []);
   // the fields inside each template, with paths like `templates[0].x`
   const templateCandidates = schemaTemplates(schema).map((template, i) =>
-    collectPointerCandidates([template], `templates[${i}]`, []).map(({ field, path }) => ({
+    collectCandidates([template], `templates[${i}]`, []).map(({ field, path }) => ({
       field,
       path: path.replace(`templates[${i}].${template.name}`, `templates[${i}]`)
     }))
@@ -97,36 +91,6 @@ export const validateSchema = (schema: DenseSchema): ValidationResult => {
         message: `template "${template.name}" has no finite value: every path through it recurses forever`
       });
   });
-
-  const byName = new Map<string, string[]>();
-  for (const { field, path } of candidates) byName.set(field.name, [...(byName.get(field.name) ?? []), path]);
-
-  const checkedTargets = new Set<DenseField>();
-  for (const { field, path } of allCandidates) {
-    if (field.type !== 'pointer') continue;
-    const paths = byName.get(field.targetName) ?? [];
-
-    if (paths.length === 0) {
-      errors.push({ path, message: `pointer target "${field.targetName}" does not exist` });
-      continue;
-    }
-    if (paths.length > 1) {
-      errors.push({
-        path,
-        message: `pointer target "${field.targetName}" is ambiguous, it matches ${paths.join(', ')}`
-      });
-      continue;
-    }
-
-    const target = resolveDenseFieldByName(schema, field.targetName)!;
-    if (checkedTargets.has(target)) continue;
-    checkedTargets.add(target);
-    if (widths(target).min === Infinity)
-      errors.push({
-        path,
-        message: `pointer target "${field.targetName}" has no finite value: every path through it recurses forever`
-      });
-  }
 
   return { valid: errors.length === 0, errors };
 };
@@ -172,27 +136,59 @@ const validateTemplates = (
   });
 
   let refsValid = true;
-  for (const { field, path } of [...candidates, ...templateCandidates.flat()])
+  for (const { field, path } of [...candidates, ...templateCandidates.flat()]) {
     if (field.type === 'reference' && !findTemplate(schema, field.ref)) {
       errors.push({ path, message: `template ${field.ref} does not exist` });
       refsValid = false;
     }
+    if (field.type === 'union' && !validateUnion(schema, field, path, errors)) refsValid = false;
+  }
   if (!refsValid) return;
 
   // templates reachable from the fields
   const referenced = new Set<number>();
   const visit = (list: Candidate[]) => {
-    for (const { field } of list)
-      if (field.type === 'reference' && !referenced.has(field.ref)) {
-        referenced.add(field.ref);
-        visit(templateCandidates[field.ref]);
-      }
+    for (const { field } of list) {
+      const refs = field.type === 'reference' ? [field.ref] : field.type === 'union' ? Object.values(field.variants) : [];
+      for (const ref of refs)
+        if (!referenced.has(ref)) {
+          referenced.add(ref);
+          visit(templateCandidates[ref]);
+        }
+    }
   };
   visit(candidates);
   templates.forEach((template, i) => {
     if (!referenced.has(i))
       errors.push({ path: `templates[${i}]`, message: `template "${template.name}" is never referenced` });
   });
+};
+
+/** The union rules; false when a variant's template does not resolve to an object */
+const validateUnion = (schema: DenseSchema, field: UnionField, path: string, errors: ValidationError[]): boolean => {
+  const names = variantNames(field);
+  if (!names.length) errors.push({ path, message: `union "${field.name}" has no variants` });
+  if (field.defaultVariant !== undefined && !names.includes(field.defaultVariant))
+    errors.push({ path, message: `default variant "${field.defaultVariant}" is not one of [${names.join(', ')}]` });
+  let resolved = true;
+  for (const key of names) {
+    const at = `${path}.variants.${key}`;
+    if (/^(0|[1-9]\d*)$/.test(key))
+      errors.push({ path: at, message: `variant "${key}" looks like an index, JS objects would reorder it` });
+    const index = field.variants[key];
+    let template = Number.isInteger(index) ? findTemplate(schema, index) : undefined;
+    // a template that is a reference to another template
+    for (let depth = 0; template?.type === 'reference' && depth < 64; depth++) template = findTemplate(schema, template.ref);
+    if (!template) {
+      errors.push({ path: at, message: `template ${index} does not exist` });
+      resolved = false;
+    } else if (template.type !== 'object') {
+      errors.push({ path: at, message: `the template of a variant must be an object, got "${template.type}"` });
+      resolved = false;
+    } else if (template.fields.some((f) => f.name === field.discriminator))
+      errors.push({ path: at, message: `field "${field.discriminator}" has the name of the discriminator` });
+  }
+  return resolved;
 };
 
 /** Throw when `validateSchema` reports an error */

@@ -11,7 +11,6 @@ import {
   int,
   object,
   optional,
-  pointer,
   reference,
   referenceNumeric,
   schema,
@@ -23,6 +22,10 @@ import { densingSchema, schemaEncodingStats, undensingSchema } from '../meta/sch
 import { DenseDecodeError } from '../errors';
 import { DenseSchema } from '../schema-type';
 import { schemaSamples } from './fixtures/schema-samples';
+import { schemaFromJson } from '../schema/from-json';
+import { pointersToTemplates } from '../schema/migrate';
+import { densing, undensing } from '../densing';
+import v0 from './fixtures/v0-schema-strings.json';
 
 const roundTrip = (s: DenseSchema, base?: Parameters<typeof densingSchema>[1]) => {
   const encoded = densingSchema(s, base);
@@ -38,6 +41,7 @@ const node: Template = template(
     branch: [array('children', 0, 3, reference('child', () => node))]
   })
 );
+const linked: Template = template(object('linked', int('v', 0, 3), optional('next', reference('n', () => linked))));
 const length = definition('length', { mm: { min: 0, max: 1000 }, m: { min: 0, max: 100, precision: 0.01 } }, 'm');
 
 const everyKind = schema(
@@ -52,7 +56,7 @@ const everyKind = schema(
   optional('unset', int('u', 0, 1)),
   reference('tree', node),
   referenceNumeric('width', length),
-  object('linked', int('v', 0, 3), optional('next', pointer('n', 'linked'))),
+  reference('linked', linked),
   union('shape', enumeration('kind', ['dot', 'line'], 'line'), { dot: [], line: [fixed('len', 0, 1, 0.5)] })
 );
 
@@ -107,6 +111,49 @@ describe('round trip', () => {
       const decoded = undensingSchema(densingSchema(s));
       expect(Object.keys(decoded)).toEqual(Object.keys(s));
     }
+  });
+});
+
+describe('version 0 strings (densing 0.4) still decode', () => {
+  // captured with densing 0.4.6; unions come back in the 0.5 form, pointers as templates
+  const reencodes = (s: DenseSchema) => {
+    const again = densingSchema(s, 'binary');
+    expect(again.slice(0, 3)).toBe('001'); // written as version 1
+    expect(undensingSchema(again, 'binary')).toEqual(s);
+  };
+
+  test('every field kind, with densed optional defaults and unions', () => {
+    const decoded = undensingSchema(v0.everyKind.encoded);
+    expect(decoded).toEqual(schemaFromJson(v0.everyKind.json));
+    reencodes(decoded);
+  });
+
+  test('optional defaults inside union variants, and their payloads', () => {
+    const { encoded, json, data, payload } = v0.optionalDefaultsInVariants;
+    const decoded = undensingSchema(encoded);
+    expect(decoded).toEqual(schemaFromJson(json));
+    // the absent optional `o` decodes as its default, 5
+    expect(undensing(decoded, payload)).toEqual({ ...data, v: { type: 'a', o: 5 } });
+    expect(densing(decoded, data)).toBe(payload);
+    reencodes(decoded);
+  });
+
+  test('pointers become templates, and payloads read the same', () => {
+    const { encoded, json, data, payload } = v0.pointers;
+    const decoded = undensingSchema(encoded);
+    expect(decoded).toEqual(schemaFromJson(pointersToTemplates(json)));
+    expect(undensing(decoded, payload)).toEqual(data);
+    reencodes(decoded);
+  });
+
+  test('pointers together with densed optional defaults are rejected with a hint', () => {
+    expect(() => undensingSchema(v0.pointerWithDenseDefault.encoded)).toThrow('convert it with pointersToTemplates');
+  });
+
+  test('the vec2 schema', async () => {
+    const decoded = undensingSchema(v0.vec2.encoded);
+    expect(decoded).toEqual(schemaFromJson(await Bun.file(`${import.meta.dir}/fixtures/vec2.dense.json`).text()));
+    reencodes(decoded);
   });
 });
 

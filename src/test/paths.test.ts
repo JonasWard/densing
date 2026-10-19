@@ -1,8 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { getAllDenseSchemaPaths, getFieldByPath, walkDenseSchema } from '../api';
-import { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, schema, union } from '../schema/builder';
+import { array, bool, enumArray, enumeration, fixed, int, object, optional, reference, schema, template, Template, union } from '../schema/builder';
 import { DenseField, DenseSchema } from '../schema-type';
 import { GLSLRayMarchingSchema } from './glsl-ray-marching.test';
+
+const expr: Template = template(
+  union('expr', 'kind', {
+    number: [int('value', 0, 1000)],
+    add: [reference('left', () => expr), reference('right', () => expr)]
+  })
+);
 
 const S = schema(
   int('id', 0, 10),
@@ -14,10 +21,7 @@ const S = schema(
     start: [int('delay', 0, 9), object('opts', fixed('speed', 0, 1, 0.1))],
     stop: [bool('force')]
   }),
-  union('expr', enumeration('kind', ['number', 'add']), {
-    number: [int('value', 0, 1000)],
-    add: [pointer('left', 'expr'), pointer('right', 'expr')]
-  })
+  reference('expr', expr)
 );
 
 describe('getFieldByPath understands every path the walk produces', () => {
@@ -59,8 +63,8 @@ describe('path grammar', () => {
     expect(at('action.force')?.type).toBe('bool');
   });
 
-  test('pointers continue in their target', () => {
-    expect(at('expr.left')?.type).toBe('pointer');
+  test('references continue in their template', () => {
+    expect(at('expr.left')?.type).toBe('reference');
     expect(at('expr.left.value')?.name).toBe('value');
     expect(at('expr.left.right.left.kind')?.type).toBe('enum');
   });

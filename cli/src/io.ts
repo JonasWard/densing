@@ -38,12 +38,16 @@ export const parseJson = (text: string, what: string, exitCode: 1 | 2): unknown 
   }
 };
 
+/** The schema's JSON as it is, without loading it (for `upgrade`, whose input 0.5 cannot load) */
+export const loadSchemaJson = async (source: string, stdin = readStdin): Promise<unknown> =>
+  parseJson(await readText(source, 'schema', stdin), 'schema', 2);
+
 /**
  * Load a schema from a source, for now only JSON files (or `-` for stdin) are supported
  * @todo 0.5.0 - also accept a densing meta-schema as file, url or string
  */
 export const loadSchema = async (source: string, stdin = readStdin): Promise<DenseSchema> => {
-  const json = parseJson(await readText(source, 'schema', stdin), 'schema', 2);
+  const json = await loadSchemaJson(source, stdin);
   try {
     return schemaFromJson(json);
   } catch (error) {

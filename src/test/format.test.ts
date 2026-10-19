@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { densing, undensing } from '../densing';
-import { array, bool, enumArray, enumeration, fixed, int, object, optional, pointer, schema, union } from '../schema/builder';
+import { array, bool, enumArray, enumeration, fixed, int, object, optional, reference, schema, template, Template, union } from '../schema/builder';
 import { DenseSchema } from '../schema-type';
 
 // Pins the wire format described in FORMAT.md. If one of these tests fails, the bytes on the wire
@@ -9,11 +9,13 @@ import { DenseSchema } from '../schema-type';
 const HEX = '0123456789ABCDEF';
 const BASES = ['base64url', 'baseQRCode45UrlSafe', 'binary', HEX] as const;
 
-const expression = union('expr', enumeration('type', ['number', 'add', 'multiply']), {
-  number: [int('value', 0, 1000)],
-  add: [pointer('left', 'expr'), pointer('right', 'expr')],
-  multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
-});
+const expression: Template = template(
+  union('expr', 'type', {
+    number: [int('value', 0, 1000)],
+    add: [reference('left', () => expression), reference('right', () => expression)],
+    multiply: [reference('left', () => expression), reference('right', () => expression)]
+  })
+);
 
 const GOLDEN: { name: string; schema: DenseSchema; data: any; encoded: readonly string[] }[] = [
   {
@@ -56,8 +58,9 @@ const GOLDEN: { name: string; schema: DenseSchema; data: any; encoded: readonly 
     encoded: ['H5DgMA', '3C.PGS', '0001111110010000111000000011000', '1F90E030']
   },
   {
-    name: 'pointer',
-    schema: schema(expression),
+    // the same bits as the 0.4 pointer form of this schema
+    name: 'recursive template',
+    schema: schema(reference('expr', expression)),
     data: {
       expr: {
         type: 'multiply',

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { schema, int, bool, fixed, enumeration, union, pointer, undensingSchema } from 'densing';
+import { schema, int, bool, fixed, enumeration, union, reference, template, undensingSchema, type Template } from 'densing';
 import { main, type CliIO } from '../main';
 import { version } from '../../package.json';
 
@@ -14,12 +14,30 @@ const DeviceSchema = schema(
 );
 const deviceData = { deviceId: 42, enabled: true, temperature: 23.5, mode: 'performance' };
 
-const ExpressionSchema = schema(
-  union('expr', enumeration('type', ['number', 'add']), {
+const expr: Template = template(
+  union('expr', 'type', {
     number: [int('value', 0, 1000)],
-    add: [pointer('left', 'expr'), pointer('right', 'expr')]
+    add: [reference('left', () => expr), reference('right', () => expr)]
   })
 );
+const ExpressionSchema = schema(reference('expr', expr));
+// the same schema as densing 0.4 wrote it, with pointer fields
+const ExpressionSchema04 = {
+  fields: [
+    {
+      type: 'union',
+      name: 'expr',
+      discriminator: { type: 'enum', name: 'type', options: ['number', 'add'] },
+      variants: {
+        number: [{ type: 'int', name: 'value', min: 0, max: 1000 }],
+        add: [
+          { type: 'pointer', name: 'left', targetName: 'expr' },
+          { type: 'pointer', name: 'right', targetName: 'expr' }
+        ]
+      }
+    }
+  ]
+};
 const expressionData = {
   expr: { type: 'add', left: { type: 'number', value: 5 }, right: { type: 'number', value: 3 } }
 };
@@ -32,6 +50,7 @@ beforeAll(async () => {
   await writeFile(file('device.json'), JSON.stringify(DeviceSchema));
   await writeFile(file('device-data.json'), JSON.stringify(deviceData));
   await writeFile(file('expression.json'), JSON.stringify(ExpressionSchema));
+  await writeFile(file('expression-0.4.json'), JSON.stringify(ExpressionSchema04));
   await writeFile(file('expression-data.json'), JSON.stringify(expressionData));
   await writeFile(file('invalid-schema.json'), JSON.stringify({ fields: [{ type: 'int', name: 'x', min: 5, max: 1 }] }));
   await writeFile(file('not-json.json'), '{ nope');
@@ -95,7 +114,7 @@ describe('encode / decode', () => {
     );
   });
 
-  test('round trips recursive schemas with pointers', async () => {
+  test('round trips recursive schemas', async () => {
     const encoded = await run(['encode', '-s', file('expression.json'), file('expression-data.json')]);
     expect(encoded.code).toBe(0);
     const decoded = await run(['decode', '-s', file('expression.json'), encoded.stdout, '--compact']);
@@ -174,16 +193,17 @@ describe('schema commands', () => {
     expect(JSON.parse(stdout)).toEqual(schema(int('x', 3, 9)));
   });
 
-  test('upgrade turns pointers into templates', async () => {
-    const { stdout, code } = await run(['upgrade', '-s', file('expression.json')]);
+  test('upgrade turns a 0.4 schema with pointers into the 0.5 form', async () => {
+    expect((await run(['encode', '-s', file('expression-0.4.json'), '-d', '{}'])).stderr).toContain('pointersToTemplates');
+    const { stdout, code } = await run(['upgrade', '-s', file('expression-0.4.json')]);
     expect(code).toBe(0);
-    const upgraded = JSON.parse(stdout);
     expect(stdout).not.toContain('"pointer"');
-    expect(upgraded.templates).toHaveLength(1);
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(JSON.stringify(ExpressionSchema)));
     await writeFile(file('expression-upgraded.json'), stdout);
     const data = JSON.stringify(expressionData);
     const before = (await run(['encode', '-s', file('expression.json'), '-d', data])).stdout;
     expect((await run(['encode', '-s', file('expression-upgraded.json'), '-d', data])).stdout).toBe(before);
+    expect((await run(['upgrade', '-s', file('not-json.json')])).code).toBe(2);
   });
 
   test('schema --dense prints the schema as a compact string', async () => {

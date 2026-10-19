@@ -1,10 +1,9 @@
 import { DenseSchema, DenseField, assertNeverDenseField } from '../schema-type';
 import { PRESETS_KEY, presetNames, resolveTemplateOrThrow, schemaDefinitions } from './definitions';
-import { resolvePointerOrThrow } from './resolve';
+import { variantNames, variantObject } from './variants';
 
 /**
- * Generate TypeScript type definitions from a schema. Objects, unions, templates and pointer targets
- * get a named type, named after the field (union variants: `Union_Option`). Fields of the same shape
+ * Generate TypeScript type definitions from a schema. Objects, unions and templates get a named type, named after the field (union variants: `Union_Option`). Fields of the same shape
  * share a type; a name that is already taken by another shape gets a number (`Fields2`).
  */
 export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'SchemaData'): string => {
@@ -39,16 +38,15 @@ export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'Schem
     if (field.type !== 'union') return [`export type ${typeName} = ${typeOf(field)};`];
 
     // name the variants before their fields, so nested types cannot take their names
-    const { discriminator, variants } = field;
-    const variantNames = discriminator.options.map((option) =>
-      uniqueName(`${typeName}_${capitalize(identifier(option))}`)
-    );
+    const options = variantNames(field);
+    const typeNames = options.map((option) => uniqueName(`${typeName}_${capitalize(identifier(option))}`));
     return [
-      ...discriminator.options.map((option, i) => {
-        const tag = `  ${propertyKey(discriminator.name)}: ${stringLiteral(option)};`;
-        return `export interface ${variantNames[i]} {\n${[tag, ...variants[option].map(property)].join('\n')}\n}`;
+      ...options.map((option, i) => {
+        const tag = `  ${propertyKey(field.discriminator)}: ${stringLiteral(option)};`;
+        const fields = variantObject(field, option, schema).fields.map(property);
+        return `export interface ${typeNames[i]} {\n${[tag, ...fields].join('\n')}\n}`;
       }),
-      `export type ${typeName} = ${variantNames.join(' | ')};`
+      `export type ${typeName} = ${typeNames.join(' | ')};`
     ];
   };
 
@@ -73,8 +71,6 @@ export const generateTypes = (schema: DenseSchema, rootTypeName: string = 'Schem
       case 'object':
       case 'union':
         return named(field);
-      case 'pointer':
-        return named(resolvePointerOrThrow(field, schema));
       case 'reference':
         return named(resolveTemplateOrThrow(field, schema));
       default:

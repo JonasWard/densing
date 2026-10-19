@@ -1,7 +1,7 @@
 // api.test.ts - Test the high-level API methods
 import { test, expect } from 'bun:test';
 import { schema } from '../schema/builder';
-import { int, fixed, bool, enumeration, optional, object, array, union, enumArray, pointer } from '../schema/builder';
+import { int, fixed, bool, enumeration, optional, object, array, union, enumArray, reference, template, Template } from '../schema/builder';
 import {
   getDenseFieldBitWidthRange,
   calculateDenseFieldBitWidth,
@@ -566,18 +566,20 @@ test('getDenseFieldBitWidthRange - same-named fields across union variants', () 
   expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 9, max: 9 });
 });
 
-test('getDenseFieldBitWidthRange - two pointers to the same non-recursive target', () => {
-  const S = schema(object('point', int('x', 0, 255), int('y', 0, 255)), pointer('a', 'point'), pointer('b', 'point'));
-  expect(analyzeDenseSchemaSize(S).staticRange).toMatchObject({ minBits: 48, maxBits: 48 });
+test('getDenseFieldBitWidthRange - two references to the same non-recursive template', () => {
+  const point = template(object('point', int('x', 0, 255), int('y', 0, 255)));
+  const S = schema(reference('a', point), reference('b', point));
+  expect(analyzeDenseSchemaSize(S).staticRange).toMatchObject({ minBits: 32, maxBits: 32 });
 });
 
 test('getDenseFieldBitWidthRange - recursive union: tight min, unbounded max', () => {
-  const S = schema(
-    union('expr', enumeration('type', ['number', 'add']), {
+  const expr: Template = template(
+    union('expr', 'type', {
       number: [int('value', 0, 1000)],
-      add: [pointer('left', 'expr'), pointer('right', 'expr')]
+      add: [reference('left', () => expr), reference('right', () => expr)]
     })
   );
+  const S = schema(reference('expr', expr));
   // smallest payload is a single number node: 1 discriminator bit + 10 value bits
   expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 11, max: Infinity });
   const size = calculateDenseDataSize(S, { expr: { type: 'number', value: 3 } });
@@ -587,11 +589,13 @@ test('getDenseFieldBitWidthRange - recursive union: tight min, unbounded max', (
 });
 
 test('getDenseFieldBitWidthRange - recursive linked list through an optional', () => {
-  const S = schema(object('node', int('v', 0, 7), optional('next', pointer('n', 'node'))));
+  const node: Template = template(object('node', int('v', 0, 7), optional('next', reference('n', () => node))));
+  const S = schema(reference('node', node));
   expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 4, max: Infinity });
 });
 
 test('getDenseFieldBitWidthRange - recursion behind an array that may be empty', () => {
-  const S = schema(object('tree', int('v', 0, 7), array('children', 0, 3, pointer('child', 'tree'))));
+  const tree: Template = template(object('tree', int('v', 0, 7), array('children', 0, 3, reference('child', () => tree))));
+  const S = schema(reference('tree', tree));
   expect(getDenseFieldBitWidthRange(S.fields[0], S)).toEqual({ min: 5, max: Infinity });
 });

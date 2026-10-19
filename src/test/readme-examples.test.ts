@@ -20,7 +20,6 @@ import {
   calculateDenseDataSize,
   getDefaultData,
   generateTypes,
-  pointer,
   definition,
   referenceNumeric,
   schemaWithDefinitions,
@@ -192,7 +191,7 @@ test('Arrays', () => {
 // ===== Unions Example =====
 test('Unions (Polymorphic Types)', () => {
   const ActionSchema = schema(
-    union('action', enumeration('type', ['start', 'stop', 'pause']), {
+    union('action', 'type', {
       start: [int('delay', 0, 60)],
       stop: [bool('force')],
       pause: [int('duration', 0, 3600)]
@@ -251,6 +250,23 @@ test('Unions (Polymorphic Types)', () => {
       stopFalseSize.totalBits.toString()
     )}`
   );
+});
+
+// ===== Unions sharing variants (GUIDE) =====
+test('GUIDE: unions that offer the same operations share their templates', () => {
+  const operations = { double: [int('value', 0, 100)], half: [int('value', 0, 100)] };
+  const Measures = schema(
+    union('length', 'type', { literal: [int('value', 0, 100)], ...operations }),
+    union('angle', 'type', { degrees: [int('value', 0, 359)], ...operations })
+  );
+  const data = { length: { type: 'double', value: 3 }, angle: { type: 'degrees', value: 90 } };
+  expect(undensing(Measures, densing(Measures, data))).toEqual(data);
+  expect(JSON.parse(JSON.stringify(Measures.fields[0]))).toEqual({
+    type: 'union',
+    name: 'length',
+    discriminator: 'type',
+    variants: { literal: 0, double: 0, half: 0 }
+  });
 });
 
 // ===== Enum Arrays Example =====
@@ -368,22 +384,29 @@ test('Custom Bases', () => {
 // ===== Recursive Structures Example =====
 test('Recursive Structures', () => {
   const expr: Template = template(
-    union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+    union('expr', 'type', {
       number: [int('value', 0, 1000)],
       add: [reference('left', () => expr), reference('right', () => expr)],
       multiply: [reference('left', () => expr), reference('right', () => expr)]
     })
   );
   const ExpressionSchema = schema(reference('expr', expr));
-  // the deprecated pointer form converts to exactly this schema
-  const PointerSchema = schema(
-    union('expr', enumeration('type', ['number', 'add', 'multiply']), {
-      number: [int('value', 0, 1000)],
-      add: [pointer('left', 'expr'), pointer('right', 'expr')],
-      multiply: [pointer('left', 'expr'), pointer('right', 'expr')]
-    })
-  );
-  expect(pointersToTemplates(PointerSchema)).toEqual(ExpressionSchema);
+  // a 0.4 schema with the removed pointer fields converts to exactly this schema
+  const pointers = [
+    { type: 'pointer', name: 'left', targetName: 'expr' },
+    { type: 'pointer', name: 'right', targetName: 'expr' }
+  ];
+  const PointerJson = {
+    fields: [
+      {
+        type: 'union',
+        name: 'expr',
+        discriminator: { type: 'enum', name: 'type', options: ['number', 'add', 'multiply'] },
+        variants: { number: [{ type: 'int', name: 'value', min: 0, max: 1000 }], add: pointers, multiply: pointers }
+      }
+    ]
+  };
+  expect(schemaFromJson(pointersToTemplates(PointerJson))).toEqual(ExpressionSchema);
 
   // Encode: (5 + 3) * 2
   const data = {
@@ -401,7 +424,7 @@ test('Recursive Structures', () => {
   const encoded = densing(ExpressionSchema, data);
   const decoded = undensing(ExpressionSchema, encoded);
   expect(decoded).toEqual(data);
-  expect(densing(PointerSchema, data)).toBe(encoded);
+  expect(densing(schemaFromJson(pointersToTemplates(PointerJson)), data)).toBe(encoded);
   const sizeInfo = calculateDenseDataSize(ExpressionSchema, data);
   console.log(`Recursive structure: ${figure(encoded, data, sizeInfo.totalBits.toString())}`);
 });
@@ -595,7 +618,7 @@ test('README: the JSON schema is the same schema as the builder one', () => {
 
 test('README and GUIDE: every Densing Builder link opens the schema and data shown next to it', () => {
   const expr: Template = template(
-    union('expr', enumeration('type', ['number', 'add', 'multiply']), {
+    union('expr', 'type', {
       number: [int('value', 0, 1000)],
       add: [reference('left', () => expr), reference('right', () => expr)],
       multiply: [reference('left', () => expr), reference('right', () => expr)]

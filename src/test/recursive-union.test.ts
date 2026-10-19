@@ -1,21 +1,22 @@
 import { describe, test, expect } from 'bun:test';
-import { schema, int, enumeration, union, pointer, fixed } from '../schema';
+import { schema, int, enumeration, union, reference, fixed, template, Template } from '../schema';
 import { densing, undensing } from '../densing';
 
-describe('Recursive Union Tests (with pointer)', () => {
+describe('Recursive Union Tests (with templates)', () => {
   /**
    * Example 1: Mathematical Expression
-   * Using first-class pointer support for clean recursive definitions
+   * A template that refers to itself
    */
   test('recursive expression schema', () => {
-    const ExpressionSchema = schema(
+    const exprT: Template = template(
       union('expr', enumeration('type', ['number', 'add', 'multiply', 'divide']), {
         number: [int('value', 0, 1000)],
-        add: [pointer('left', 'expr'), pointer('right', 'expr')],
-        multiply: [pointer('left', 'expr'), pointer('right', 'expr')],
-        divide: [pointer('left', 'expr'), pointer('right', 'expr')]
+        add: [reference('left', () => exprT), reference('right', () => exprT)],
+        multiply: [reference('left', () => exprT), reference('right', () => exprT)],
+        divide: [reference('left', () => exprT), reference('right', () => exprT)]
       })
     );
+    const ExpressionSchema = schema(reference('expr', exprT));
 
     // Test data: ((5 + 3) * 2) / 4 = 4
     const expressionData = {
@@ -48,15 +49,16 @@ describe('Recursive Union Tests (with pointer)', () => {
 
   /**
    * Example 2: Binary Tree with Any Value Type
-   * Using pointers for naturally recursive tree structures
+   * A template for naturally recursive tree structures
    */
   test('recursive binary tree schema', () => {
-    const BinaryTreeSchema = schema(
+    const nodeT: Template = template(
       union('node', enumeration('type', ['leaf', 'branch']), {
         leaf: [int('value', 0, 100)],
-        branch: [int('value', 0, 100), pointer('left', 'node'), pointer('right', 'node')]
+        branch: [int('value', 0, 100), reference('left', () => nodeT), reference('right', () => nodeT)]
       })
     );
+    const BinaryTreeSchema = schema(reference('node', nodeT));
 
     const treeData = {
       node: {
@@ -94,17 +96,18 @@ describe('Recursive Union Tests (with pointer)', () => {
    * Demonstrates mixed value types with recursive operations
    */
   test('method schema with recursive operations', () => {
-    const MethodSchema = schema(
+    const methodT: Template = template(
       union('method', enumeration('type', ['int_value', 'fixed_value', 'operation']), {
         int_value: [int('value', 0, 1000)],
         fixed_value: [fixed('value', -100, 100, 0.1)],
         operation: [
           enumeration('op', ['add', 'multiply', 'subtract']),
-          pointer('left', 'method'),
-          pointer('right', 'method')
+          reference('left', () => methodT),
+          reference('right', () => methodT)
         ]
       })
     );
+    const MethodSchema = schema(reference('method', methodT));
 
     // Usage: (5 * 3.5) + 10 = 27.5
     const methodData = {
@@ -134,12 +137,13 @@ describe('Recursive Union Tests (with pointer)', () => {
   });
 
   test('deep recursion (linked list)', () => {
-    const ListSchema = schema(
+    const listT: Template = template(
       union('list', enumeration('type', ['empty', 'cons']), {
         empty: [],
-        cons: [int('head', 0, 255), pointer('tail', 'list')]
+        cons: [int('head', 0, 255), reference('tail', () => listT)]
       })
     );
+    const ListSchema = schema(reference('list', listT));
 
     // List: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     const buildList = (values: number[]): any => {
@@ -170,8 +174,8 @@ describe('Recursive Union Tests (with pointer)', () => {
   });
 });
 
-console.log('\n=== Key Benefits of Pointer-Based Recursion ===');
-console.log('✓ Define the recursive structure ONCE with pointer()');
+console.log('\n=== Key Benefits of Template-Based Recursion ===');
+console.log('✓ Define the recursive structure ONCE with template() and reference()');
 console.log('✓ Unlimited depth - no artificial limits!');
 console.log('✓ No manual nesting required');
 console.log('✓ Clean, maintainable code');
