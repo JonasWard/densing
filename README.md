@@ -1,17 +1,30 @@
 # densing
 
-Densing packs structured data into as few bits as a schema allows and writes the result as a short
-string: base64url by default, a QR-code friendly base45, or any alphabet you give it. Useful for
-state in URLs, QR codes and anywhere else where every character counts.
+Library for bit level (de)compacting of objects based on a schema. You describe the shape of your
+data once, densing works out how many bits every field needs and writes the result as a rather short
+string: base64url by default, a QR code friendly base45, or any alphabet you give it. Useful for state
+in urls, QR codes and anywhere else where every character counts.
+
+It is an iteration on [url-safe-bitpacking](https://github.com/JonasWard/url-safe-bitpacking), aiming
+for a nicer developer experience, more performance and more scalable data types.
+
+Try it in the [Densing Builder](https://jonasward.ch/densing-ui/). No backend at all, the schema and
+the data are both stored in the link!
 
 ```bash
 npm install densing
 ```
 
-## Quick start
+## A schema
+
+A schema is an ordered list of fields, and every field has a range. The range is what decides the
+bits: an int between 0 and 1000 has 1001 possible values and therefore needs 10 bits. Nothing else is
+written, no names, no separators, no lengths that the schema already knows.
+
+The same schema can be written with the builder functions:
 
 ```typescript
-import { schema, int, bool, fixed, enumeration, densing, undensing } from 'densing';
+import { schema, int, bool, fixed, enumeration } from 'densing';
 
 const DeviceSchema = schema(
   int('deviceId', 0, 1000), // 10 bits
@@ -19,6 +32,31 @@ const DeviceSchema = schema(
   fixed('temperature', -40, 125, 0.1), // 11 bits
   enumeration('mode', ['eco', 'normal', 'performance']) // 2 bits
 );
+```
+
+or as plain JSON:
+
+```json
+{
+  "fields": [
+    { "type": "int", "name": "deviceId", "min": 0, "max": 1000 },
+    { "type": "bool", "name": "enabled" },
+    { "type": "fixed", "name": "temperature", "min": -40, "max": 125, "precision": 0.1 },
+    { "type": "enum", "name": "mode", "options": ["eco", "normal", "performance"] }
+  ]
+}
+```
+
+`schemaFromJson(json)` turns the second into exactly the first. It runs the same checks as the builder
+functions and fills in the defaults that were left out.
+
+[Open this schema in the Densing Builder](https://jonasward.ch/densing-ui/#n=Device+Config&s=AFI5RY-q-ibRITU1OV4ivSAgQF1QmMk0inx3nnQiRMiFzmJq5bUYXje56-0JLUDcNKew&d=Cqnu).
+It shows what every field costs and every bit the data encodes to, colored by the field it belongs to.
+
+## Encode and decode
+
+```typescript
+import { densing, undensing } from 'densing';
 
 const data = { deviceId: 42, enabled: true, temperature: 23.5, mode: 'performance' };
 
@@ -26,148 +64,27 @@ const encoded = densing(DeviceSchema, data); // "Cqnu" (24 bits)
 undensing(DeviceSchema, encoded); // { deviceId: 42, enabled: true, temperature: 23.5, mode: 'performance' }
 ```
 
-The same data as JSON is 70 characters.
+The same data as JSON is 70 characters. The biggest trade-off is legibility though: without the schema
+`Cqnu` means nothing, and a string can only be read back with the schema it was written with.
 
 ## Field types
 
-| Builder | Bits |
-| --- | --- |
-| `int('age', 0, 120)` | `log2(max - min + 1)`, here 7 |
-| `fixed('temp', 0, 50, 0.1)` | `log2((max - min) / precision + 1)`, here 9 |
-| `bool('enabled')` | 1 |
-| `enumeration('color', ['R', 'G', 'B'])` | `log2(options)`, here 2 |
-| `optional('note', field)` | 1, plus the field when present |
-| `array('items', 0, 10, field)` | length, plus each item |
-| `enumArray('tags', enumField, 0, 5)` | length, plus the values packed as one base-n number |
-| `object('config', ...fields)` | the sum of its fields |
-| `union('action', discriminator, variants)` | the discriminator, plus the chosen variant |
-| `reference('position', vec3)` | whatever the template takes |
-| `pointer('child', 'node')` (deprecated) | whatever the target field takes |
-| `referenceNumeric('width', length)` | the active preset of the definition |
+| Function | JSON `type` | Bits |
+| --- | --- | --- |
+| `int(name, min, max, default?)` | `int` | `ceil(log2(max - min + 1))` |
+| `fixed(name, min, max, precision, default?)` | `fixed` | `ceil(log2((max - min) / precision + 1))` |
+| `bool(name, default?)` | `bool` | 1 |
+| `enumeration(name, options, default?)` | `enum` | `ceil(log2(options))` |
+| `optional(name, field, default?)` | `optional` | 1, plus the field when it is there |
+| `array(name, minLength, maxLength, items)` | `array` | the length, plus every item |
+| `enumArray(name, enumField, minLength, maxLength)` | `enum_array` | the length, plus all values packed as one base-n number |
+| `object(name, ...fields)` | `object` | the sum of its fields |
+| `union(name, discriminator, variants)` | `union` | the discriminator, plus the fields of the chosen variant |
+| `reference(name, template)` | `reference` | whatever the [template](https://github.com/JonasWard/densing/blob/main/GUIDE.md#templates) takes |
+| `referenceNumeric(name, definition)` | `reference_numeric` | the active preset of the [definition](https://github.com/JonasWard/densing/blob/main/GUIDE.md#shared-numeric-definitions) |
 
-## Examples
-
-### Optional fields
-
-```typescript
-const UserSchema = schema(int('id', 0, 10000), optional('age', int('ageValue', 0, 120)));
-
-densing(UserSchema, { id: 100, age: 25 }); // "AZJk" (22 bits)
-densing(UserSchema, { id: 100, age: null }); // "AZA" (15 bits)
-```
-
-### Nested objects
-
-```typescript
-const ConfigSchema = schema(int('version', 1, 10), object('settings', bool('darkMode'), int('fontSize', 8, 24)));
-
-densing(ConfigSchema, { version: 2, settings: { darkMode: true, fontSize: 14 } }); // "GY" (10 bits)
-```
-
-### Arrays
-
-```typescript
-const ListSchema = schema(array('scores', 0, 10, int('score', 0, 100)));
-
-densing(ListSchema, { scores: [95] }); // "G-" (11 bits)
-densing(ListSchema, { scores: [95, 87, 92, 88] }); // "S_XuWA" (32 bits)
-```
-
-### Unions
-
-```typescript
-const ActionSchema = schema(
-  union('action', enumeration('type', ['start', 'stop', 'pause']), {
-    start: [int('delay', 0, 60)],
-    stop: [bool('force')],
-    pause: [int('duration', 0, 3600)]
-  })
-);
-
-densing(ActionSchema, { action: { type: 'start', delay: 5 } }); // "BQ" (8 bits)
-densing(ActionSchema, { action: { type: 'stop', force: true } }); // "Y" (3 bits)
-densing(ActionSchema, { action: { type: 'pause', duration: 1234 } }); // "k0g" (14 bits)
-```
-
-### Enum arrays
-
-```typescript
-const ColorSchema = schema(enumArray('palette', enumeration('color', ['R', 'G', 'B']), 0, 10));
-
-densing(ColorSchema, { palette: ['R', 'G', 'B', 'R', 'R'] }); // "Ut" (12 bits)
-```
-
-### Templates
-
-A `template` is a shape that is only used through `reference` fields. It is stored once, under the
-schema's `templates`, and never appears in the data itself:
-
-```typescript
-const vec3 = template(object('vec3', fixed('x', -10, 10, 0.01), fixed('y', -10, 10, 0.01), fixed('z', -10, 10, 0.01)));
-
-const Pose = schema(reference('position', vec3), reference('rotation', vec3));
-
-densing(Pose, { position: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: -0.5 } }); // "iZLCij6H0O2" (66 bits)
-```
-
-In the schema JSON a reference points at its template by index:
-`{ "type": "reference", "name": "position", "ref": 0 }`.
-
-### Recursive structures
-
-A template can contain itself through a function, since it does not exist yet while it is built:
-
-```typescript
-const expr: Template = template(
-  union('expr', enumeration('type', ['number', 'add', 'multiply']), {
-    number: [int('value', 0, 1000)],
-    add: [reference('left', () => expr), reference('right', () => expr)],
-    multiply: [reference('left', () => expr), reference('right', () => expr)]
-  })
-);
-const ExpressionSchema = schema(reference('expr', expr));
-
-// (5 + 3) * 2
-const data = {
-  expr: {
-    type: 'multiply',
-    left: { type: 'add', left: { type: 'number', value: 5 }, right: { type: 'number', value: 3 } },
-    right: { type: 'number', value: 2 }
-  }
-};
-
-densing(ExpressionSchema, data); // "kAUAMAI" (40 bits)
-```
-
-Every recursion needs a way out (a union variant, an optional or an array that may be empty);
-`schema()` checks it.
-
-### Pointers (deprecated)
-
-`pointer('left', 'expr')` refers to another field by name and is encoded as that field. Templates
-replace it: they mark the shared shape as reference-only and give the same bits.
-`pointersToTemplates(schema)` (or `densing upgrade -s schema.json`) converts a pointer schema without
-changing its data or payloads. Pointers keep working in 0.4.x and will be removed in 0.5.0.
-
-### Shared numeric definitions
-
-A `definition` declares a numeric range once, with one or more presets. Each payload stores which
-preset is active, and every `referenceNumeric` field using the definition is encoded with it:
-
-```typescript
-const length = definition('length', {
-  mm: { min: 0, max: 1000 },
-  m: { min: 0, max: 100, precision: 0.01 }
-});
-
-const Box = schema(referenceNumeric('width', length), referenceNumeric('height', length), referenceNumeric('depth', length));
-
-densing(Box, { width: 120, height: 40, depth: 800 }); // "DwFGQA" (31 bits)
-densing(Box, { $presets: { length: 'm' }, width: 12.5, height: 0.4, depth: 80 }); // "icQBQ-gA" (43 bits)
-```
-
-Without `$presets` the default preset is used (the first, or the third argument of `definition`).
-Picking a preset costs `log2(presets)` bits, so a definition with a single preset is free.
+The [guide](https://github.com/JonasWard/densing/blob/main/GUIDE.md) has an example for each of them,
+including recursive structures like an expression tree.
 
 ## Validation
 
@@ -176,11 +93,11 @@ validate(DeviceSchema, { ...data, deviceId: 2000 });
 // { valid: false, errors: [{ path: 'deviceId', message: 'value 2000 out of range [0, 1000]' }] }
 ```
 
-`densing` applies the same rules and throws a `DenseEncodeError` for the first invalid value;
-`validate` returns all of them. `undensing` throws a `DenseDecodeError` for strings the encoder
-cannot produce, such as edited or truncated URLs.
+`validate` returns every problem it finds. `densing` applies the same rules, though it throws a
+`DenseEncodeError` on the first one. `undensing` throws a `DenseDecodeError` for strings the encoder
+can not have produced, such as an edited or truncated url.
 
-## Size analysis
+## Size
 
 ```typescript
 analyzeDenseSchemaSize(DeviceSchema).staticRange;
@@ -205,51 +122,21 @@ generateTypes(DeviceSchema, 'Device');
 // }
 ```
 
-## Schemas as JSON
+## The schema as a string
 
-A schema is plain data. `JSON.stringify` it to store or send it, and load it with `schemaFromJson`,
-which runs the same checks as the builders and fills in missing defaults:
-
-```typescript
-const loaded = schemaFromJson(JSON.stringify(DeviceSchema));
-
-schemaFromJson({ fields: [{ type: 'int', name: 'age', min: 0, max: 120 }] });
-// { fields: [{ type: 'int', name: 'age', min: 0, max: 120, defaultValue: 0 }] }
-
-schemaFromJson({ fields: [{ type: 'int', name: 'age', min: 120, max: 0 }] });
-// throws: Invalid schema at fields[0]: int "age": max < min
-```
-
-## Schemas as strings
-
-`densingSchema` packs a whole schema into a short string, so a URL can carry the schema next to its data:
+Since the schema is needed to read anything back, it can also be packed itself. `densingSchema` writes
+the Device schema in 68 characters, where its JSON takes 320, so a url can carry the schema next to its
+data. That is also how the Densing Builder links work.
 
 ```typescript
-const text = densingSchema(DeviceSchema); // 68 characters, the JSON is 320
+const text = densingSchema(DeviceSchema);
 undensingSchema(text); // equal to DeviceSchema
 ```
 
-Names and options may use any script (`Größe`, `température`, `θ₀`, `温度`, `🌡️`): each schema stores the
-characters it uses once, and every name as digits over that set. Across the test schemas the result
-is 83–92% shorter than URL-encoded JSON and 21–68% shorter than base64 of brotli-compressed JSON.
-`undensingSchema` checks the result like `schemaFromJson` does.
-
-## Alphabets
-
-```typescript
-densing(DeviceSchema, data); // 'Cqnu' (base64url)
-densing(DeviceSchema, data, 'baseQRCode45UrlSafe'); // '1CZYG'
-densing(DeviceSchema, data, 'binary'); // '000010101010100111101110'
-densing(DeviceSchema, data, customBase('0123456789abcdef')); // '0aa9ee'
-```
-
-Decode with the same alphabet. `customBase` rejects alphabets with fewer than two characters,
-duplicates, or characters outside the Basic Multilingual Plane.
-
 ## Command line
 
-[`densing-cli`](./cli/README.md) encodes, decodes, validates and analyses data from the terminal,
-using a schema saved as JSON:
+[`densing-cli`](https://github.com/JonasWard/densing/blob/main/cli/README.md) encodes, decodes,
+validates and analyses data from the terminal, using a schema saved as JSON:
 
 ```bash
 npm install -g densing-cli
@@ -260,46 +147,22 @@ densing size -s device.json               # static bit sizes of the schema
 densing schema -s device.json --dense     # the schema itself as a compact string
 ```
 
-## API
+## More
 
-Full reference in [API.md](./API.md); the wire format is specified in [FORMAT.md](./FORMAT.md).
-
-Schemas and data
-- `schema(...fields)`; `schemaWithDefinitions(definitions, ...fields)` when `referenceNumeric` uses a definition's name
-- `densing(schema, data, base?)`, `undensing(schema, encoded, base?)`
-- `validate(schema, data)`, `validateSchema(schema)` (run by `schema()`)
-- `getDefaultData(schema)`, `generateTypes(schema, typeName?)`
-- `schemaFromJson(json)`, `densingSchema(schema, base?)`, `undensingSchema(encoded, base?)`, `customBase(alphabet)`
-
-Fields
-- `int(name, min, max, default?)`, `fixed(name, min, max, precision, default?)`
-- `bool(name, default?)`, `enumeration(name, options, default?)`
-- `optional(name, field, default?)`, `array(name, minLength, maxLength, items)`
-- `enumArray(name, enumField, minLength, maxLength)`, `object(name, ...fields)`
-- `union(name, discriminator, variants)`
-- `template(field)`, `reference(name, template)`; `pointer(name, targetName)` is deprecated, see `pointersToTemplates(schema)`
-- `definition(name, presets, defaultPreset?)`, `referenceNumeric(name, definition)`
-
-Introspection
-- `analyzeDenseSchemaSize(schema)`, `calculateDenseDataSize(schema, data)`
-- `getDenseFieldBitWidthRange(field, schema?)`, `calculateDenseFieldBitWidth(field, value, schema?)`
-- `getFieldByPath(schema, path)`, `walkDenseSchema(schema, callback)`, `getAllDenseSchemaPaths(schema)`
-
-## Performance
-
-Bun on an M4 MacBook Air (`bun run benchmark`):
-
-| Schema | Encode | Decode |
-| --- | --- | --- |
-| 4 fields (int, bool, fixed, enum) | ~1,330,000 ops/s | ~1,516,000 ops/s |
-| nested objects, arrays, optionals | ~484,000 ops/s | ~394,000 ops/s |
-| array of 50 ints | ~98,000 ops/s | ~91,000 ops/s |
+- [GUIDE.md](https://github.com/JonasWard/densing/blob/main/GUIDE.md): an example per field type,
+  templates, recursion, shared numeric definitions, alphabets and performance
+- [API.md](https://github.com/JonasWard/densing/blob/main/API.md): size calculation and schema
+  introspection
+- [FORMAT.md](https://github.com/JonasWard/densing/blob/main/FORMAT.md): the wire format, bit by bit
+- [CHANGELOG.md](https://github.com/JonasWard/densing/blob/main/CHANGELOG.md)
+- [Densing Builder](https://jonasward.ch/densing-ui/) and its
+  [source](https://github.com/JonasWard/densing-ui)
 
 ## Development
 
 ```bash
 bun test           # unit, format and cli tests
-bun run test:json  # every test schema survives JSON.stringify -> schemaFromJson
+bun run test:json  # every test schema survives JSON.stringify and schemaFromJson
 ```
 
 Issues and pull requests are welcome.
